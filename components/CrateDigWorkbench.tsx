@@ -25,10 +25,9 @@ import {
   ChevronRight,
   ChevronLeft,
   BarChart3,
-  Bot,
-  Cookie,
-  FolderGit2,
   Compass,
+  Settings,
+  ArrowLeft,
 } from 'lucide-react';
 import {
   MusicTrack,
@@ -70,7 +69,7 @@ import { generatePlsPlaylist } from '@/lib/playlist-exporter';
 
 const STORAGE_KEY = 'cratedig_yt_state_v1';
 
-export type PipelineStepId = 'feed' | 'discover' | 'assistant' | 'playlists' | 'deploy';
+export type PipelineStepId = 'cookies' | 'feed' | 'search' | 'assistant' | 'export';
 
 interface PipelineStepMeta {
   id: PipelineStepId;
@@ -79,58 +78,64 @@ interface PipelineStepMeta {
   shortTitle: string;
   guideTitle: string;
   guideDescription: string;
+  whatYouNeed: string;
   nextLabel?: string;
 }
 
 const PIPELINE_STEPS: PipelineStepMeta[] = [
   {
-    id: 'feed',
+    id: 'cookies',
     stepNumber: '01',
-    title: '1. Feed & Cookies',
-    shortTitle: 'Feed & Cookies',
-    guideTitle: 'Step 01 · Authenticate & Filter Your YouTube Music Feed',
+    title: '1. Connect Cookies',
+    shortTitle: 'Connect Cookies',
+    guideTitle: 'Step 01 · Connect Your Browser Cookies (or Use Demo Feed)',
     guideDescription:
-      'Copy a ready-to-run yt-dlp cookie command to pull your personal YouTube feed, or paste tracks below and automatically strip out podcasts and news.',
-    nextLabel: 'Continue to Taste Discovery',
+      'Pick your web browser to get a 1-line yt-dlp command that exports your YouTube liked songs, upload an existing file, or click "Load Instant Demo Feed" to skip terminal setup.',
+    whatYouNeed: 'Required Data: Choose Browser (Firefox/Chrome) or click Demo Feed',
+    nextLabel: 'Next: Filter Feed Songs',
   },
   {
-    id: 'discover',
+    id: 'feed',
     stepNumber: '02',
-    title: '2. Taste Discovery',
-    shortTitle: 'Discovery',
-    guideTitle: 'Step 02 · Discover, Inspect & Rank Tracks by Taste DNA',
+    title: '2. Filter Feed Songs',
+    shortTitle: 'Filter Feed',
+    guideTitle: 'Step 02 · Paste & Filter Your YouTube Music Feed',
     guideDescription:
-      'Explore tracks ranked by your Taste DNA, inspect specific songs with Google Search Grounding, or switch to Taste Analytics to visualize your sonic profile.',
-    nextLabel: 'Ask Gemini Crate AI',
+      'Review your imported YouTube lines and run filterMusicTracks to automatically strip out podcasts, news, and non-music videos before building your Taste DNA.',
+    whatYouNeed: 'Required Data: Raw YouTube URLs / titles (or 1-click genre preset)',
+    nextLabel: 'Next: Search Music & Taste DNA',
+  },
+  {
+    id: 'search',
+    stepNumber: '03',
+    title: '3. Search Music & DNA',
+    shortTitle: 'Search Music',
+    guideTitle: 'Step 03 · Search Songs, Inspect URLs & Pick Favorite Artists/Tags',
+    guideDescription:
+      'Search any Artist - Song or YouTube URL, run live Google Search Grounding for vinyl & label details, and click ★ on artists or #tags to customize your Taste DNA.',
+    whatYouNeed: 'Required Data: Search any song/artist or add Favorite Artists & #Tags',
+    nextLabel: 'Next: Ask Gemini Crate AI',
   },
   {
     id: 'assistant',
-    stepNumber: '03',
-    title: '3. Gemini Crate AI',
-    shortTitle: 'Gemini AI',
-    guideTitle: 'Step 03 · Gemini Crate Assistant & Google Search Grounding',
-    guideDescription:
-      'Chat with a specialist AI Musicologist, yt-dlp CLI Engineer, or DJ Set Curator powered by Gemini (3.1 Lite, 3.8 Flash, 4 Argon) and real-time Google Search citations.',
-    nextLabel: 'Review Crate & Export',
-  },
-  {
-    id: 'playlists',
     stepNumber: '04',
-    title: '4. Crate & Export',
-    shortTitle: 'Crate & Export',
-    guideTitle: 'Step 04 · Bulk-Edit Saved Tracks & Export Playlists (.m3u / .pls / .sh)',
+    title: '4. Gemini Crate AI',
+    shortTitle: 'Gemini AI',
+    guideTitle: 'Step 04 · Ask Gemini Crate AI & Google Search Grounding',
     guideDescription:
-      'Select saved tracks in your active crate to apply tags or categories in bulk, then export standard .m3u, .pls, or executable yt-dlp download scripts.',
-    nextLabel: 'Setup GitHub Pages CI/CD',
+      'Click any of the 3 worked examples below or ask Gemini to recommend deep cuts via Google Search, write custom yt-dlp scripts, or sequence BPM transitions.',
+    whatYouNeed: 'Optional: Click a worked example card or ask a custom question',
+    nextLabel: 'Next: Ranked Crate & Export',
   },
   {
-    id: 'deploy',
+    id: 'export',
     stepNumber: '05',
-    title: '5. GitHub CI/CD',
-    shortTitle: 'GitHub CI/CD',
-    guideTitle: 'Step 05 · Deploy Static Workbench to GitHub Pages',
+    title: '5. Crate & Export',
+    shortTitle: 'Crate & Export',
+    guideTitle: 'Step 05 · Ranked Music Crate, Bulk Tag Editor & Playlist Export',
     guideDescription:
-      'Connect your GitHub repository remote to generate a zero-config GitHub Actions CI/CD workflow and portable Taste DNA backup.',
+      'Browse your Taste-Ranked recommendations, bulk-edit tags on saved tracks, view Taste Analytics charts, and download .m3u, .pls, or yt-dlp .sh scripts.',
+    whatYouNeed: 'Output: Downloadable .m3u, .pls, or yt-dlp .sh batch script',
   },
 ];
 
@@ -152,15 +157,14 @@ const DEFAULT_PLAYLISTS: Playlist[] = [
 ];
 
 export default function CrateDigWorkbench() {
-  // Active Pipeline Stage (focused 1-stage-at-a-time layout)
-  const [activeSection, setActiveSection] = useState<PipelineStepId>('discover');
+  // Top-level mode: 'pipeline' (the 5-step music workflow) vs 'settings' (GitHub CI/CD & App Settings)
+  const [activeView, setActiveView] = useState<'pipeline' | 'settings'>('pipeline');
 
-  // Sub-tabs within Stage 2 (Discovery) and Stage 4 (Crate & Export) to keep each screen minimal
-  const [discoverSubTab, setDiscoverSubTab] = useState<'catalog' | 'inspector' | 'analytics'>('catalog');
-  const [crateSubTab, setCrateSubTab] = useState<'tracks' | 'exporter' | 'ytdlp'>('tracks');
+  // Active Pipeline Stage (Steps 01 -> 05)
+  const [activeStep, setActiveStep] = useState<PipelineStepId>('cookies');
 
-  // Collapsible Taste DNA & Playlists Drawer (clean & out of the way by default on smaller screens)
-  const [showTasteDrawer, setShowTasteDrawer] = useState<boolean>(false);
+  // Sub-tabs inside Step 05 (Crate & Export) so only one clean view is displayed at a time
+  const [exportSubTab, setExportSubTab] = useState<'ranked' | 'saved' | 'exporter' | 'analytics'>('ranked');
 
   // YouTube Feed Input State
   const [feedText, setFeedText] = useState<string>(SEED_YOUTUBE_FEED_SAMPLE);
@@ -352,8 +356,8 @@ export default function CrateDigWorkbench() {
     return generateYtDlpCommand(activePlaylistTracks, ytDlpOptions);
   }, [activePlaylistTracks, ytDlpOptions]);
 
-  const currentStepIndex = PIPELINE_STEPS.findIndex((s) => s.id === activeSection);
-  const currentStepMeta = PIPELINE_STEPS[currentStepIndex] || PIPELINE_STEPS[1];
+  const currentStepIndex = PIPELINE_STEPS.findIndex((s) => s.id === activeStep);
+  const currentStepMeta = PIPELINE_STEPS[currentStepIndex] || PIPELINE_STEPS[0];
   const prevStepMeta = currentStepIndex > 0 ? PIPELINE_STEPS[currentStepIndex - 1] : null;
   const nextStepMeta =
     currentStepIndex < PIPELINE_STEPS.length - 1 ? PIPELINE_STEPS[currentStepIndex + 1] : null;
@@ -365,8 +369,7 @@ export default function CrateDigWorkbench() {
       setFeedText(filtered.filteredText);
     }
     setFeedTracks(filtered.tracks);
-    setActiveSection('discover');
-    setDiscoverSubTab('catalog');
+    setActiveStep('search');
   };
 
   const handleCleanFeedTextWithFilter = () => {
@@ -696,7 +699,7 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
               </button>
             )}
 
-            {activeSection === 'playlists' && selectedInScope.length > 0 && (
+            {exportSubTab === 'saved' && selectedInScope.length > 0 && (
               <button
                 type="button"
                 onClick={handleBulkRemoveFromPlaylist}
@@ -834,13 +837,14 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col">
-      {/* Minimal Top Bar */}
+      {/* Minimal Top Bar: Zone 1 (Brand) — Zone 2 (5 Pipeline Steps) — Zone 3 (Settings & Export) */}
       <header className="sticky top-0 z-30 bg-zinc-950/95 backdrop-blur border-b border-zinc-800/80 px-6 py-3.5 flex items-center justify-between gap-6">
         <a
           href="#top"
           onClick={(e) => {
             e.preventDefault();
-            setActiveSection('discover');
+            setActiveView('pipeline');
+            setActiveStep('cookies');
           }}
           className="text-lg font-display font-bold tracking-tight text-zinc-100 whitespace-nowrap shrink-0"
         >
@@ -855,9 +859,12 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
             <button
               key={step.id}
               type="button"
-              onClick={() => setActiveSection(step.id)}
+              onClick={() => {
+                setActiveView('pipeline');
+                setActiveStep(step.id);
+              }}
               className={`hover:text-zinc-100 transition-colors whitespace-nowrap shrink-0 py-1 border-b-2 cursor-pointer ${
-                activeSection === step.id
+                activeView === 'pipeline' && activeStep === step.id
                   ? 'text-amber-400 border-amber-400'
                   : 'border-transparent'
               }`}
@@ -868,782 +875,518 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
         </nav>
 
         <div className="flex items-center gap-2.5 shrink-0">
+          {/* Dedicated Settings & GitHub CI/CD View Toggle (Outside Pipeline) */}
           <button
             type="button"
-            onClick={() => setShowTasteDrawer((prev) => !prev)}
-            className={`px-3 py-2 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              showTasteDrawer
-                ? 'bg-zinc-800 text-amber-300 border-amber-400/50'
+            onClick={() =>
+              setActiveView((prev) => (prev === 'settings' ? 'pipeline' : 'settings'))
+            }
+            className={`px-3 py-2 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer ${
+              activeView === 'settings'
+                ? 'bg-amber-400 text-zinc-950 border-amber-400 font-semibold'
                 : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-zinc-800'
             }`}
           >
-            Taste DNA &amp; Crates ({activePlaylistTracks.length})
+            <Settings className="w-3.5 h-3.5" />
+            <span>Settings &amp; GitHub CI/CD</span>
           </button>
 
           <button
             type="button"
             onClick={() => {
-              setActiveSection('playlists');
-              setCrateSubTab('exporter');
+              setActiveView('pipeline');
+              setActiveStep('export');
+              setExportSubTab('exporter');
             }}
             className="px-4 py-2 text-xs font-semibold text-zinc-950 bg-amber-400 rounded-lg hover:bg-amber-300 transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
-            Export Crate
+            <span>Export Crate ({activePlaylistTracks.length})</span>
           </button>
         </div>
       </header>
 
-      {/* Main Centered Container (Clean Single-Pipeline Workspace) */}
+      {/* Main Centered Container */}
       <main className="flex-1 max-w-[1280px] w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
-        {/* Interactive 5-Stage Pipeline Stepper & Contextual Step Guide */}
-        <section
-          aria-label="Guided Pipeline Progress"
-          className="bg-zinc-900/60 border border-zinc-800/90 rounded-xl p-5 space-y-4"
-        >
-          {/* Stepper Tabs */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-            {PIPELINE_STEPS.map((step, idx) => {
-              const isCurrent = step.id === activeSection;
-              const isCompleted = idx < currentStepIndex;
-              return (
-                <button
-                  key={step.id}
-                  type="button"
-                  onClick={() => setActiveSection(step.id)}
-                  className={`text-left px-3.5 py-2.5 rounded-lg border transition-colors cursor-pointer flex items-center justify-between gap-2 ${
-                    isCurrent
-                      ? 'bg-amber-400 text-zinc-950 border-amber-400 font-semibold'
-                      : isCompleted
-                      ? 'bg-zinc-950/90 text-zinc-200 border-zinc-800 hover:border-zinc-700'
-                      : 'bg-zinc-950/50 text-zinc-400 border-zinc-800/70 hover:text-zinc-200'
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <div
-                      className={`text-[10px] font-mono ${
-                        isCurrent ? 'text-zinc-900' : 'text-amber-400/90'
-                      }`}
-                    >
-                      STEP {step.stepNumber}
-                    </div>
-                    <div className="text-xs truncate">{step.shortTitle}</div>
-                  </div>
-                  {isCompleted && !isCurrent && (
-                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Current Stage Guide & Step Navigation */}
-          <div className="pt-3 border-t border-zinc-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="space-y-1 max-w-2xl">
-              <h1 className="text-base sm:text-lg font-display font-bold text-zinc-100 tracking-tight">
-                {currentStepMeta.guideTitle}
-              </h1>
-              <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed">
-                {currentStepMeta.guideDescription}
-              </p>
+        {/* =====================================================================
+            SETTINGS VIEW (GitHub Pages CI/CD, yt-dlp Defaults & Taste DNA Backup)
+            Completely outside the 5-step music pipeline!
+           ===================================================================== */}
+        {activeView === 'settings' ? (
+          <div className="space-y-6">
+            <div className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="text-xs font-mono text-amber-400">
+                  SETTINGS &amp; DEPLOYMENT
+                </div>
+                <h1 className="text-lg sm:text-xl font-display font-bold text-zinc-100">
+                  GitHub Pages CI/CD, Default yt-dlp Flags &amp; Taste Backup
+                </h1>
+                <p className="text-xs sm:text-sm text-zinc-400">
+                  Configure automatic GitHub Pages deployment, default audio extraction format, or reset your Taste DNA.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveView('pipeline')}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-zinc-700 rounded-lg text-xs font-semibold transition-colors inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back to Music Pipeline</span>
+              </button>
             </div>
 
-            {/* Pipeline Quick Stats & Next/Prev Step Buttons */}
-            <div className="flex items-center gap-2 shrink-0 flex-wrap">
-              <span className="text-xs text-zinc-400 font-mono tabular-nums mr-2 hidden xl:inline">
-                {feedTracks.length} feed seeds · {favoriteArtists.length} fav artists ·{' '}
-                {activePlaylistTracks.length} in crate
-              </span>
-
-              {prevStepMeta && (
-                <button
-                  type="button"
-                  onClick={() => setActiveSection(prevStepMeta.id)}
-                  className="px-3 py-2 bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                  <span>Prev: {prevStepMeta.shortTitle}</span>
-                </button>
-              )}
-
-              {nextStepMeta && (
-                <button
-                  type="button"
-                  onClick={() => setActiveSection(nextStepMeta.id)}
-                  className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700 rounded-lg text-xs font-semibold transition-colors inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
-                >
-                  <span>{currentStepMeta.nextLabel || `Next: ${nextStepMeta.shortTitle}`}</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {/* Optional Collapsible Drawer: Taste DNA Favorites & Active Crate Manager */}
-        {showTasteDrawer && (
-          <section
-            aria-label="Taste DNA and Active Playlists Drawer"
-            className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-5 grid grid-cols-1 lg:grid-cols-12 gap-6"
-          >
-            {/* Left 7 Cols: Taste DNA Signals */}
-            <div className="lg:col-span-7 space-y-4">
-              <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+            {/* Default yt-dlp Audio & Cookie Settings Card */}
+            <section className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
                 <div>
                   <h2 className="text-sm font-display font-semibold text-zinc-100">
-                    Taste DNA Signals (Artists, Tags &amp; Categories)
+                    Default yt-dlp Audio &amp; Cookie Preferences
                   </h2>
-                  <p className="text-xs text-zinc-400 font-mono tabular-nums">
-                    Target Tempo: {tasteProfile.targetBpmRange[0]}–{tasteProfile.targetBpmRange[1]} BPM
+                  <p className="text-xs text-zinc-400">
+                    Used whenever generating <code className="font-mono text-zinc-300">.sh</code> download scripts across the pipeline.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={resetFavoritesToDefault}
-                  className="text-xs text-zinc-400 hover:text-amber-300 transition-colors cursor-pointer"
+                  className="px-3 py-1.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded-lg text-xs cursor-pointer"
                 >
-                  Reset Defaults
+                  Reset Taste DNA to Defaults
                 </button>
               </div>
 
-              <form onSubmit={handleAddCustomFavorite} className="flex gap-2">
-                <select
-                  aria-label="Favorite Signal Type"
-                  value={newFavType}
-                  onChange={(e) => setNewFavType(e.target.value as 'artist' | 'tag' | 'category')}
-                  className="bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-amber-400"
-                >
-                  <option value="artist">Artist</option>
-                  <option value="tag">Tag</option>
-                  <option value="category">Category</option>
-                </select>
-                <input
-                  id="fav-input"
-                  type="text"
-                  value={newFavValue}
-                  onChange={(e) => setNewFavValue(e.target.value)}
-                  placeholder="Add artist, #tag, or category..."
-                  className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-amber-400"
-                />
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold rounded-lg text-xs transition-colors cursor-pointer"
-                >
-                  Add Signal
-                </button>
-              </form>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="settings-cookie-source" className="block text-xs font-medium text-zinc-300">
+                    Cookie Mode
+                  </label>
+                  <select
+                    id="settings-cookie-source"
+                    value={ytDlpOptions.cookieSource || 'browser'}
+                    onChange={(e) =>
+                      setYtDlpOptions((prev) => ({
+                        ...prev,
+                        cookieSource: e.target.value as YtDlpCookieSource,
+                      }))
+                    }
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
+                  >
+                    <option value="browser">Browser Cookies (--cookies-from-browser)</option>
+                    <option value="file">Netscape File (--cookies cookies.txt)</option>
+                    <option value="none">No Cookies (Public Only)</option>
+                  </select>
+                </div>
 
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center flex-wrap gap-1.5">
-                  <span className="text-zinc-400 font-medium mr-1">Artists:</span>
-                  {favoriteArtists.map((artist) => (
-                    <button
-                      key={artist}
-                      type="button"
-                      onClick={() => toggleFavoriteArtist(artist)}
-                      className="px-2 py-0.5 bg-zinc-950 hover:bg-zinc-800 text-amber-300 border border-zinc-800 rounded text-xs cursor-pointer"
-                    >
-                      {artist} ×
-                    </button>
-                  ))}
+                <div className="space-y-1.5">
+                  <label htmlFor="settings-browser" className="block text-xs font-medium text-zinc-300">
+                    Default Browser
+                  </label>
+                  <select
+                    id="settings-browser"
+                    value={ytDlpOptions.cookieBrowser || 'firefox'}
+                    onChange={(e) =>
+                      setYtDlpOptions((prev) => ({
+                        ...prev,
+                        cookieBrowser: e.target.value as YtDlpCookieBrowser,
+                      }))
+                    }
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
+                  >
+                    <option value="firefox">Firefox</option>
+                    <option value="chrome">Chrome</option>
+                    <option value="brave">Brave</option>
+                    <option value="edge">Edge</option>
+                    <option value="safari">Safari</option>
+                  </select>
                 </div>
-                <div className="flex items-center flex-wrap gap-1.5">
-                  <span className="text-zinc-400 font-medium mr-1">Tags:</span>
-                  {favoriteTags.map((tag) => (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => toggleFavoriteTag(tag)}
-                      className="px-2 py-0.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded text-xs cursor-pointer"
-                    >
-                      #{tag} ×
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center flex-wrap gap-1.5">
-                  <span className="text-zinc-400 font-medium mr-1">Categories:</span>
-                  {favoriteCategories.map((cat) => (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => toggleFavoriteCategory(cat)}
-                      className="px-2 py-0.5 bg-zinc-950 hover:bg-zinc-800 text-emerald-300 border border-zinc-800 rounded text-xs cursor-pointer"
-                    >
-                      {cat} ×
-                    </button>
-                  ))}
+
+                <div className="space-y-1.5">
+                  <label htmlFor="settings-format" className="block text-xs font-medium text-zinc-300">
+                    Audio Format
+                  </label>
+                  <select
+                    id="settings-format"
+                    value={ytDlpOptions.format}
+                    onChange={(e) =>
+                      setYtDlpOptions((prev) => ({
+                        ...prev,
+                        format: e.target.value as YtDlpOptions['format'],
+                      }))
+                    }
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
+                  >
+                    <option value="mp3">MP3 Audio (-x --audio-format mp3)</option>
+                    <option value="flac">FLAC Lossless (-x --audio-format flac)</option>
+                    <option value="opus">Opus (-x --audio-format opus)</option>
+                    <option value="m4a">M4A / AAC (-x --audio-format m4a)</option>
+                  </select>
                 </div>
               </div>
-            </div>
+            </section>
 
-            {/* Right 5 Cols: Active Playlists Manager */}
-            <div className="lg:col-span-5 space-y-3 border-t lg:border-t-0 lg:border-l border-zinc-800 pt-4 lg:pt-0 lg:pl-6">
-              <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
-                <h2 className="text-sm font-display font-semibold text-zinc-100">
-                  Active Playlists
-                </h2>
-                <ListMusic className="w-4 h-4 text-zinc-400" />
-              </div>
-
-              <div className="space-y-1.5">
-                {playlists.map((pl) => {
-                  const isSelected = pl.id === activePlaylistId;
+            {/* GitHub Pages CI/CD Deployer */}
+            <GitHubPagesDeployer
+              tasteProfileSnapshot={{
+                favoriteArtists,
+                favoriteTags,
+                favoriteCategories,
+                playlists,
+                feedText,
+              }}
+              onImportTasteBackup={(parsed) => {
+                hydrateFavorites({
+                  favoriteArtists: Array.isArray(parsed.favoriteArtists)
+                    ? (parsed.favoriteArtists as string[])
+                    : undefined,
+                  favoriteTags: Array.isArray(parsed.favoriteTags)
+                    ? (parsed.favoriteTags as string[])
+                    : undefined,
+                  favoriteCategories: Array.isArray(parsed.favoriteCategories)
+                    ? (parsed.favoriteCategories as string[])
+                    : undefined,
+                });
+                if (Array.isArray(parsed.playlists) && parsed.playlists.length > 0) {
+                  setPlaylists(parsed.playlists as Playlist[]);
+                  setActivePlaylistId((parsed.playlists[0] as Playlist).id);
+                }
+                if (typeof parsed.feedText === 'string') {
+                  setFeedText(parsed.feedText);
+                  setFeedTracks(parseYouTubeFeedInput(parsed.feedText));
+                }
+              }}
+            />
+          </div>
+        ) : (
+          /* =====================================================================
+             MAIN 5-STEP MUSIC PIPELINE VIEW
+             Each data requirement and search stage is a separate step with its own guide
+             ===================================================================== */
+          <>
+            {/* Interactive 5-Stage Pipeline Stepper & Step Guidance Card */}
+            <section
+              aria-label="Guided Pipeline Progress"
+              className="bg-zinc-900/60 border border-zinc-800/90 rounded-xl p-5 space-y-4"
+            >
+              {/* Stepper Tabs */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                {PIPELINE_STEPS.map((step, idx) => {
+                  const isCurrent = step.id === activeStep;
+                  const isCompleted = idx < currentStepIndex;
                   return (
-                    <div
-                      key={pl.id}
-                      className={`flex items-center justify-between rounded-lg px-3 py-2 text-xs border ${
-                        isSelected
-                          ? 'bg-zinc-800/90 border-amber-400/50 text-zinc-100'
-                          : 'bg-zinc-950/60 border-zinc-800/60 text-zinc-400 hover:text-zinc-200'
+                    <button
+                      key={step.id}
+                      type="button"
+                      onClick={() => setActiveStep(step.id)}
+                      className={`text-left px-3.5 py-2.5 rounded-lg border transition-colors cursor-pointer flex items-center justify-between gap-2 ${
+                        isCurrent
+                          ? 'bg-amber-400 text-zinc-950 border-amber-400 font-semibold'
+                          : isCompleted
+                          ? 'bg-zinc-950/90 text-zinc-200 border-zinc-800 hover:border-zinc-700'
+                          : 'bg-zinc-950/50 text-zinc-400 border-zinc-800/70 hover:text-zinc-200'
                       }`}
                     >
-                      <button
-                        type="button"
-                        onClick={() => setActivePlaylistId(pl.id)}
-                        className="flex-1 text-left truncate font-medium cursor-pointer"
-                      >
-                        {pl.name}
-                      </button>
-                      <div className="flex items-center gap-2 shrink-0 ml-2">
-                        <span className="font-mono tabular-nums text-[11px] text-amber-400">
-                          {pl.trackIds.length} tracks
-                        </span>
-                        {playlists.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeletePlaylist(pl.id)}
-                            aria-label={`Delete playlist ${pl.name}`}
-                            className="text-zinc-500 hover:text-rose-400 transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                      <div className="min-w-0">
+                        <div
+                          className={`text-[10px] font-mono ${
+                            isCurrent ? 'text-zinc-900' : 'text-amber-400/90'
+                          }`}
+                        >
+                          STEP {step.stepNumber}
+                        </div>
+                        <div className="text-xs truncate">{step.shortTitle}</div>
                       </div>
-                    </div>
+                      {isCompleted && !isCurrent && (
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      )}
+                    </button>
                   );
                 })}
               </div>
 
-              <form onSubmit={handleCreatePlaylist} className="flex gap-2">
-                <input
-                  type="text"
-                  aria-label="New playlist name"
-                  value={newPlaylistName}
-                  onChange={(e) => setNewPlaylistName(e.target.value)}
-                  placeholder="New playlist crate name..."
-                  className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-amber-400"
-                />
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-medium rounded-lg text-xs transition-colors cursor-pointer"
-                >
-                  Create
-                </button>
-              </form>
-            </div>
-          </section>
-        )}
-
-        {/* =====================================================================
-            STAGE 1: YOUTUBE FEED & COOKIES GUIDE (activeSection === 'feed')
-           ===================================================================== */}
-        {activeSection === 'feed' && (
-          <div className="space-y-6">
-            <YouTubeFeedImporter
-              cookieSource={ytDlpOptions.cookieSource || 'browser'}
-              cookieBrowser={ytDlpOptions.cookieBrowser || 'firefox'}
-              cookieProfile={ytDlpOptions.cookieProfile || ''}
-              cookieFilePath={ytDlpOptions.cookieFilePath || './cookies.txt'}
-              onUpdateCookieSettings={(settings) =>
-                setYtDlpOptions((prev) => ({ ...prev, ...settings }))
-              }
-              onImportAuthenticatedFeed={(rawOutput, tracks) => {
-                setFeedText(rawOutput);
-                setFeedTracks(tracks);
-              }}
-            />
-
-            <section className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-3">
-                <div>
-                  <h2 className="text-sm font-display font-semibold text-zinc-100">
-                    Raw YouTube Feed Buffer &amp; Music Filter
-                  </h2>
-                  <p className="text-xs text-zinc-400 mt-0.5">
-                    Paste your <code className="font-mono text-zinc-300">my-youtube-feed.txt</code> lines below or load a sample preset to test automatic non-music filtering.
+              {/* Current Step Guidance & Next/Prev Navigation */}
+              <div className="pt-3 border-t border-zinc-800/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1 max-w-2xl">
+                  <div className="text-xs font-mono text-amber-300">
+                    {currentStepMeta.whatYouNeed}
+                  </div>
+                  <h1 className="text-base sm:text-lg font-display font-bold text-zinc-100 tracking-tight">
+                    {currentStepMeta.guideTitle}
+                  </h1>
+                  <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed">
+                    {currentStepMeta.guideDescription}
                   </p>
                 </div>
+
                 <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => handleLoadPresetFeed('electronic')}
-                    className="px-2.5 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors cursor-pointer"
-                  >
-                    Preset: UK Electronic
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleLoadPresetFeed('psych')}
-                    className="px-2.5 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors cursor-pointer"
-                  >
-                    Preset: Psych Funk
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleLoadPresetFeed('synth')}
-                    className="px-2.5 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors cursor-pointer"
-                  >
-                    Preset: Synthwave
-                  </button>
-                </div>
-              </div>
+                  {prevStepMeta && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveStep(prevStepMeta.id)}
+                      className="px-3 py-2 bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Prev: {prevStepMeta.shortTitle}</span>
+                    </button>
+                  )}
 
-              <textarea
-                id="youtube-feed-textarea"
-                aria-label="Feed Input"
-                rows={6}
-                value={feedText}
-                onChange={(e) => setFeedText(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 text-xs font-mono text-zinc-200 focus:outline-none focus:border-amber-400 leading-relaxed"
-                placeholder="https://www.youtube.com/watch?v=... - Artist - Title [Genre]"
-              />
-
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <p className="text-xs text-zinc-400 font-mono tabular-nums">
-                  Kept {filterMusicTracks(feedText).tracks.length} music songs · Filtered out{' '}
-                  <span className="text-amber-300">
-                    {filterMusicTracks(feedText).filteredOut.length} non-music items
-                  </span>
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleCleanFeedTextWithFilter}
-                    className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700 font-medium text-xs rounded-lg transition-colors cursor-pointer"
-                  >
-                    Run filterMusicTracks
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleAnalyzeFeed}
-                    className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold text-xs rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Analyze Feed &amp; Continue to Discovery</span>
-                  </button>
+                  {nextStepMeta && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveStep(nextStepMeta.id)}
+                      className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 rounded-lg text-xs font-semibold transition-colors inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                    >
+                      <span>{currentStepMeta.nextLabel || `Next: ${nextStepMeta.shortTitle}`}</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             </section>
-          </div>
-        )}
 
-        {/* =====================================================================
-            STAGE 2: TASTE DISCOVERY (activeSection === 'discover')
-            Clean Sub-Tabs: 1) Ranked Catalog | 2) Track Inspector & Google Search | 3) Taste Analytics
-           ===================================================================== */}
-        {activeSection === 'discover' && (
-          <div className="space-y-5">
-            {/* Clean Segmented Sub-Navigation so only ONE tool is shown at a time */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3">
-              <div
-                role="tablist"
-                aria-label="Discovery Views"
-                className="flex items-center gap-1.5 p-1 bg-zinc-950 border border-zinc-800 rounded-lg flex-wrap"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={discoverSubTab === 'catalog'}
-                  onClick={() => setDiscoverSubTab('catalog')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
-                    discoverSubTab === 'catalog'
-                      ? 'bg-amber-400 text-zinc-950 font-semibold'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  <Compass className="w-3.5 h-3.5" />
-                  <span>Ranked Catalog ({rankedTracks.length})</span>
-                </button>
+            {/* =================================================================
+                STEP 01: CONNECT COOKIES (activeStep === 'cookies')
+               ================================================================= */}
+            {activeStep === 'cookies' && (
+              <YouTubeFeedImporter
+                cookieSource={ytDlpOptions.cookieSource || 'browser'}
+                cookieBrowser={ytDlpOptions.cookieBrowser || 'firefox'}
+                cookieProfile={ytDlpOptions.cookieProfile || ''}
+                cookieFilePath={ytDlpOptions.cookieFilePath || './cookies.txt'}
+                onUpdateCookieSettings={(settings) =>
+                  setYtDlpOptions((prev) => ({ ...prev, ...settings }))
+                }
+                onImportAuthenticatedFeed={(rawOutput, tracks) => {
+                  setFeedText(rawOutput);
+                  setFeedTracks(tracks);
+                }}
+                onProceedToNextStep={() => setActiveStep('feed')}
+              />
+            )}
 
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={discoverSubTab === 'inspector'}
-                  onClick={() => setDiscoverSubTab('inspector')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
-                    discoverSubTab === 'inspector'
-                      ? 'bg-amber-400 text-zinc-950 font-semibold'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  <Search className="w-3.5 h-3.5" />
-                  <span>TrackSearch &amp; Google Grounding</span>
-                </button>
-
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={discoverSubTab === 'analytics'}
-                  onClick={() => setDiscoverSubTab('analytics')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
-                    discoverSubTab === 'analytics'
-                      ? 'bg-amber-400 text-zinc-950 font-semibold'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  <BarChart3 className="w-3.5 h-3.5" />
-                  <span>Taste Analytics Charts</span>
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2 text-xs text-zinc-400">
-                <span>Cookie Flag:</span>
-                <code className="font-mono text-amber-300">
-                  {activeCookieFlag || 'Public'}
-                </code>
-                <button
-                  type="button"
-                  onClick={() => setActiveSection('feed')}
-                  className="text-zinc-300 hover:text-amber-300 underline cursor-pointer ml-1"
-                >
-                  Configure Cookies
-                </button>
-              </div>
-            </div>
-
-            {/* SUB-VIEW 2A: RANKED CATALOG TABLE */}
-            {discoverSubTab === 'catalog' && (
-              <section className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-4">
-                <div className="flex flex-col xl:flex-row gap-3 justify-between">
-                  <div className="flex flex-1 flex-col sm:flex-row gap-2">
-                    <div className="relative flex-1">
-                      <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      <input
-                        type="text"
-                        aria-label="Search tracks, artists, or tags"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Filter catalog or query iTunes / MusicBrainz (e.g. Four Tet, breakbeat)..."
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-amber-400"
-                      />
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <select
-                        aria-label="External Music Database"
-                        value={externalSource}
-                        onChange={(e) => setExternalSource(e.target.value as 'itunes' | 'musicbrainz')}
-                        className="bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-2 text-xs text-zinc-200 focus:outline-none focus:border-amber-400"
-                      >
-                        <option value="itunes">iTunes API</option>
-                        <option value="musicbrainz">MusicBrainz API</option>
-                      </select>
-                      <button
-                        type="button"
-                        onClick={handleExternalCatalogSearch}
-                        disabled={isSearchingExternal}
-                        className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-amber-300 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isSearchingExternal ? 'animate-spin' : ''}`} />
-                        Fetch Live Catalog
-                      </button>
-                    </div>
+            {/* =================================================================
+                STEP 02: FILTER FEED SONGS (activeStep === 'feed')
+               ================================================================= */}
+            {activeStep === 'feed' && (
+              <section className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
+                  <div>
+                    <h2 className="text-sm sm:text-base font-display font-semibold text-zinc-100">
+                      Paste Your YouTube Feed Lines &amp; Strip Out Non-Music
+                    </h2>
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      Paste lines from <code className="font-mono text-zinc-300">my-youtube-feed.txt</code> (or pick a 1-click preset below). Click <strong>Run filterMusicTracks</strong> to remove podcasts and news.
+                    </p>
                   </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <SlidersHorizontal className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-                    <span className="text-xs text-zinc-400 whitespace-nowrap">Algorithm:</span>
-                    <div className="flex items-center gap-1 p-1 bg-zinc-950 border border-zinc-800 rounded-lg">
-                      {(
-                        [
-                          { id: 'hybrid-affinity', label: 'Hybrid Affinity' },
-                          { id: 'deep-cuts', label: 'Deep Cuts' },
-                          { id: 'tag-cluster', label: 'Tag Cluster' },
-                          { id: 'high-tempo-sonic', label: 'Sonic Tempo' },
-                        ] as const
-                      ).map((alg) => (
-                        <button
-                          key={alg.id}
-                          type="button"
-                          onClick={() => setAlgorithmMode(alg.id)}
-                          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
-                            algorithmMode === alg.id
-                              ? 'bg-amber-400 text-zinc-950 font-semibold'
-                              : 'text-zinc-400 hover:text-zinc-200'
-                          }`}
-                        >
-                          {alg.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Category Filter Bar & Bulk Edit Trigger */}
-                <div className="flex items-center justify-between flex-wrap gap-2 pt-1 border-b border-zinc-800 pb-3">
-                  <div className="flex items-center gap-1 flex-wrap">
-                    {categoriesList.map((cat) => (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => setCategoryFilter(cat)}
-                        className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
-                          categoryFilter === cat
-                            ? 'bg-zinc-800 text-amber-300 border border-zinc-700'
-                            : 'text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        {cat}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
                     <button
                       type="button"
-                      onClick={() => setShowDiscoverBulkBar((prev) => !prev)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1.5 cursor-pointer border ${
-                        showDiscoverBulkBar || selectedTrackIds.length > 0
-                          ? 'bg-amber-400/20 text-amber-300 border-amber-400/40'
-                          : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
-                      }`}
+                      onClick={() => handleLoadPresetFeed('electronic')}
+                      className="px-2.5 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors cursor-pointer"
                     >
-                      <Layers className="w-3.5 h-3.5" />
-                      Bulk Edit ({selectedTrackIds.length})
+                      Preset: UK Electronic
                     </button>
-                    {externalStatusMsg && (
-                      <span className="text-xs text-amber-300/90 font-mono">
-                        {externalStatusMsg}
-                      </span>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleLoadPresetFeed('psych')}
+                      className="px-2.5 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      Preset: Psych Funk
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleLoadPresetFeed('synth')}
+                      className="px-2.5 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      Preset: Synthwave
+                    </button>
                   </div>
                 </div>
 
-                {(showDiscoverBulkBar || selectedTrackIds.length > 0) &&
-                  renderBulkEditToolbar(rankedTracks, 'Tracks')}
+                <textarea
+                  id="youtube-feed-textarea"
+                  aria-label="Feed Input"
+                  rows={7}
+                  value={feedText}
+                  onChange={(e) => setFeedText(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 text-xs font-mono text-zinc-200 focus:outline-none focus:border-amber-400 leading-relaxed"
+                  placeholder="https://www.youtube.com/watch?v=... - Artist - Title [Genre]"
+                />
 
-                {/* Clean Discovery Data Table */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-zinc-800 text-[11px] font-medium text-zinc-400">
-                        <th className="py-2.5 px-2.5 w-8">
-                          <input
-                            type="checkbox"
-                            aria-label="Select all visible tracks"
-                            checked={
-                              rankedTracks.length > 0 &&
-                              rankedTracks.every((t) => selectedTrackIds.includes(t.id))
-                            }
-                            onChange={() => selectTracksScope(rankedTracks)}
-                            className="rounded border-zinc-700 bg-zinc-900 text-amber-400 focus:ring-amber-400 cursor-pointer"
-                          />
-                        </th>
-                        <th className="py-2.5 px-3">Match</th>
-                        <th className="py-2.5 px-3">Track &amp; Artist</th>
-                        <th className="py-2.5 px-3 hidden md:table-cell">Category &amp; Sonic Tags</th>
-                        <th className="py-2.5 px-3 hidden sm:table-cell text-right">BPM / Time</th>
-                        <th className="py-2.5 px-3 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-800/60 text-xs">
-                      {rankedTracks.map((track) => {
-                        const inPlaylist = activePlaylist?.trackIds.includes(track.id);
-                        const isSelected = selectedTrackIds.includes(track.id);
-                        const isFavArtist = favoriteArtists.includes(track.artist);
-                        const singleYtDlpCmd = generateYtDlpCommand([track], ytDlpOptions);
-
-                        return (
-                          <tr
-                            key={track.id}
-                            className={`hover:bg-zinc-800/40 transition-colors ${
-                              isSelected ? 'bg-amber-400/5' : ''
-                            }`}
-                          >
-                            <td className="py-3 px-2.5 align-middle">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleSelectTrack(track.id)}
-                                aria-label={`Select ${track.artist} - ${track.title}`}
-                                className="rounded border-zinc-700 bg-zinc-900 text-amber-400 focus:ring-amber-400 cursor-pointer"
-                              />
-                            </td>
-
-                            <td className="py-3 px-3 align-middle whitespace-nowrap">
-                              <span className="font-mono tabular-nums font-semibold text-amber-400 text-sm">
-                                {track.matchScore}%
-                              </span>
-                            </td>
-
-                            <td className="py-3 px-3 align-middle">
-                              <div className="flex items-center gap-2">
-                                {track.previewAudioUrl && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handlePlayPreview(track)}
-                                    aria-label={
-                                      playingPreviewTrackId === track.id
-                                        ? `Stop preview for ${track.title}`
-                                        : `Play audio preview for ${track.title}`
-                                    }
-                                    className="w-6 h-6 rounded-full bg-amber-400/20 text-amber-300 flex items-center justify-center hover:bg-amber-400 hover:text-zinc-950 transition-colors shrink-0 cursor-pointer"
-                                  >
-                                    {playingPreviewTrackId === track.id ? (
-                                      <Square className="w-3 h-3" />
-                                    ) : (
-                                      <Play className="w-3 h-3" />
-                                    )}
-                                  </button>
-                                )}
-                                <div>
-                                  <div className="font-medium text-zinc-100 leading-snug">
-                                    {track.title}
-                                  </div>
-                                  <div className="flex items-center gap-1.5 text-zinc-400 mt-0.5 whitespace-nowrap">
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleFavoriteArtist(track.artist)}
-                                      className={`hover:text-amber-300 transition-colors cursor-pointer ${
-                                        isFavArtist ? 'text-amber-300 font-medium' : ''
-                                      }`}
-                                    >
-                                      {track.artist} {isFavArtist ? '★' : '☆'}
-                                    </button>
-                                    <span aria-hidden="true" className="text-zinc-600">·</span>
-                                    <span className="text-zinc-500">{track.source}</span>
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-
-                            <td className="py-3 px-3 align-middle hidden md:table-cell">
-                              <div className="text-zinc-300 text-xs">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleFavoriteCategory(track.category)}
-                                  className="hover:text-amber-300 transition-colors cursor-pointer font-medium"
-                                >
-                                  {track.category}
-                                </button>
-                                <span aria-hidden="true" className="mx-1.5 text-zinc-600">
-                                  ·
-                                </span>
-                                <span className="text-zinc-400">
-                                  {track.tags.map((t, idx) => {
-                                    const isFavTag = favoriteTags.includes(t.toLowerCase());
-                                    return (
-                                      <React.Fragment key={t}>
-                                        {idx > 0 && (
-                                          <span aria-hidden="true" className="mx-1 text-zinc-600">
-                                            /
-                                          </span>
-                                        )}
-                                        <button
-                                          type="button"
-                                          onClick={() => toggleFavoriteTag(t)}
-                                          className={`hover:text-amber-300 transition-colors cursor-pointer ${
-                                            isFavTag ? 'text-amber-300 font-medium' : ''
-                                          }`}
-                                        >
-                                          #{t}
-                                        </button>
-                                      </React.Fragment>
-                                    );
-                                  })}
-                                </span>
-                              </div>
-                            </td>
-
-                            <td className="py-3 px-3 align-middle hidden sm:table-cell text-right font-mono tabular-nums text-zinc-400 whitespace-nowrap">
-                              {track.bpm} BPM · {formatDuration(track.durationSec)}
-                            </td>
-
-                            <td className="py-3 px-3 align-middle text-right whitespace-nowrap">
-                              <div className="inline-flex items-center gap-1.5">
-                                <a
-                                  href={track.youtubeUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="px-2.5 py-1.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1"
-                                >
-                                  <span>YouTube</span>
-                                  <ExternalLink className="w-3 h-3 text-zinc-400" />
-                                </a>
-
-                                <button
-                                  type="button"
-                                  onClick={() => copyToClipboard(singleYtDlpCmd, `cmd-${track.id}`)}
-                                  className="px-2.5 py-1.5 bg-zinc-950 hover:bg-zinc-800 text-amber-300 border border-zinc-800 rounded-lg text-xs font-mono transition-colors inline-flex items-center gap-1 cursor-pointer"
-                                >
-                                  {copiedId === `cmd-${track.id}` ? (
-                                    <>
-                                      <Check className="w-3 h-3 text-emerald-400" />
-                                      <span>Copied</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Terminal className="w-3 h-3" />
-                                      <span>yt-dlp</span>
-                                    </>
-                                  )}
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => toggleTrackInPlaylist(track.id)}
-                                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1 cursor-pointer ${
-                                    inPlaylist
-                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                                      : 'bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold'
-                                  }`}
-                                >
-                                  {inPlaylist ? (
-                                    <>
-                                      <Check className="w-3 h-3" />
-                                      <span>Saved</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Plus className="w-3 h-3" />
-                                      <span>Save</span>
-                                    </>
-                                  )}
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-
-                  {rankedTracks.length === 0 && (
-                    <div className="py-12 text-center space-y-3">
-                      <Music2 className="w-8 h-8 text-zinc-600 mx-auto" />
-                      <p className="text-sm text-zinc-300 font-medium">
-                        No tracks match your current filter or search query.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSearchQuery('');
-                          setCategoryFilter('All');
-                        }}
-                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded-lg cursor-pointer"
-                      >
-                        Reset Filters
-                      </button>
-                    </div>
-                  )}
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <p className="text-xs text-zinc-400 font-mono tabular-nums">
+                    Kept <span className="text-emerald-300 font-semibold">{filterMusicTracks(feedText).tracks.length} music songs</span> · Filtered out{' '}
+                    <span className="text-amber-300">
+                      {filterMusicTracks(feedText).filteredOut.length} non-music items (podcast / news / update)
+                    </span>
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCleanFeedTextWithFilter}
+                      className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700 font-medium text-xs rounded-lg transition-colors cursor-pointer"
+                    >
+                      Run filterMusicTracks
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAnalyzeFeed}
+                      className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold text-xs rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Save Songs &amp; Go to Step 03: Search Music</span>
+                    </button>
+                  </div>
                 </div>
               </section>
             )}
 
-            {/* SUB-VIEW 2B: TRACKSEARCH & GOOGLE SEARCH GROUNDING */}
-            {discoverSubTab === 'inspector' && (
-              <TrackSearch
-                cookieFlag={activeCookieFlag}
-                onAddTrackToCatalog={(track) => {
+            {/* =================================================================
+                STEP 03: SEARCH MUSIC & TASTE DNA (activeStep === 'search')
+               ================================================================= */}
+            {activeStep === 'search' && (
+              <div className="space-y-6">
+                {/* Part 1: Simple Song / YouTube URL Inspector & Google Search Grounding */}
+                <TrackSearch
+                  cookieFlag={activeCookieFlag}
+                  onAddTrackToCatalog={(track) => {
+                    setCustomCatalogTracks((prev) => {
+                      const exists = prev.some(
+                        (p) =>
+                          p.id === track.id ||
+                          (p.artist.toLowerCase() === track.artist.toLowerCase() &&
+                            p.title.toLowerCase() === track.title.toLowerCase())
+                      );
+                      return exists ? prev : [track, ...prev];
+                    });
+                  }}
+                  onToggleTrackInPlaylist={(trackId) => toggleTrackInPlaylist(trackId)}
+                  activePlaylistName={activePlaylist?.name}
+                  activePlaylistTrackIds={activePlaylist?.trackIds || []}
+                />
+
+                {/* Part 2: Clear Taste DNA Favorites Editor (Artists, Tags & Categories) */}
+                <section
+                  aria-label="Your Taste DNA Signals"
+                  className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-4"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+                    <div>
+                      <h2 className="text-sm font-display font-semibold text-zinc-100">
+                        Your Active Taste DNA Signals (Used to Rank &amp; Guide Gemini AI)
+                      </h2>
+                      <p className="text-xs text-zinc-400">
+                        Add your favorite artists, sonic <code className="font-mono text-zinc-300">#tags</code>, or genres below. Click any signal to remove it.
+                      </p>
+                    </div>
+                    <span className="text-xs font-mono text-amber-300 tabular-nums">
+                      Target Tempo: {tasteProfile.targetBpmRange[0]}–{tasteProfile.targetBpmRange[1]} BPM
+                    </span>
+                  </div>
+
+                  <form onSubmit={handleAddCustomFavorite} className="flex flex-col sm:flex-row gap-2">
+                    <select
+                      aria-label="Favorite Signal Type"
+                      value={newFavType}
+                      onChange={(e) => setNewFavType(e.target.value as 'artist' | 'tag' | 'category')}
+                      className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-amber-400"
+                    >
+                      <option value="artist">Favorite Artist</option>
+                      <option value="tag">Favorite #Tag</option>
+                      <option value="category">Favorite Category</option>
+                    </select>
+                    <input
+                      id="fav-input"
+                      type="text"
+                      value={newFavValue}
+                      onChange={(e) => setNewFavValue(e.target.value)}
+                      placeholder={
+                        newFavType === 'artist'
+                          ? 'Type an artist name (e.g. Aphex Twin, Overmono)...'
+                          : newFavType === 'tag'
+                          ? 'Type a sonic tag (e.g. breakbeat, idm, acid-house)...'
+                          : 'Type a category (e.g. Electronic, Psychedelic Rock)...'
+                      }
+                      className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-amber-400"
+                    />
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold rounded-lg text-xs transition-colors cursor-pointer whitespace-nowrap"
+                    >
+                      Add to Taste DNA
+                    </button>
+                  </form>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+                    <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-lg p-3.5 space-y-2">
+                      <div className="text-xs font-semibold text-zinc-300 flex justify-between">
+                        <span>Favorite Artists</span>
+                        <span className="font-mono text-amber-400">{favoriteArtists.length}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {favoriteArtists.map((artist) => (
+                          <button
+                            key={artist}
+                            type="button"
+                            onClick={() => toggleFavoriteArtist(artist)}
+                            className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-zinc-800 rounded text-xs cursor-pointer"
+                          >
+                            {artist} ×
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-lg p-3.5 space-y-2">
+                      <div className="text-xs font-semibold text-zinc-300 flex justify-between">
+                        <span>Favorite Sonic Tags</span>
+                        <span className="font-mono text-amber-400">{favoriteTags.length}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {favoriteTags.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => toggleFavoriteTag(tag)}
+                            className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 rounded text-xs font-mono cursor-pointer"
+                          >
+                            #{tag} ×
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-lg p-3.5 space-y-2">
+                      <div className="text-xs font-semibold text-zinc-300 flex justify-between">
+                        <span>Favorite Categories</span>
+                        <span className="font-mono text-emerald-400">{favoriteCategories.length}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {favoriteCategories.map((cat) => (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => toggleFavoriteCategory(cat)}
+                            className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-emerald-300 border border-zinc-800 rounded text-xs cursor-pointer"
+                          >
+                            {cat} ×
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {/* =================================================================
+                STEP 04: GEMINI CRATE AI & EXAMPLES (activeStep === 'assistant')
+               ================================================================= */}
+            {activeStep === 'assistant' && (
+              <GeminiCrateChatbot
+                activePlaylistName={activePlaylist?.name || 'Active Crate'}
+                activePlaylistTracks={activePlaylistTracks}
+                onAddSuggestedTrackToCatalog={(track) => {
                   setCustomCatalogTracks((prev) => {
                     const exists = prev.some(
                       (p) =>
@@ -1654,460 +1397,554 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
                     return exists ? prev : [track, ...prev];
                   });
                 }}
-                onToggleTrackInPlaylist={(trackId) => toggleTrackInPlaylist(trackId)}
-                activePlaylistName={activePlaylist?.name}
-                activePlaylistTrackIds={activePlaylist?.trackIds || []}
+                onAddTrackToActivePlaylist={(trackId) => addTrackToPlaylistIfAbsent(trackId)}
               />
             )}
 
-            {/* SUB-VIEW 2C: TASTE ANALYTICS CHARTS */}
-            {discoverSubTab === 'analytics' && (
-              <TasteAnalytics catalogTracks={allTracksPool} />
-            )}
-          </div>
-        )}
-
-        {/* =====================================================================
-            STAGE 3: GEMINI CRATE ASSISTANT & GOOGLE SEARCH GROUNDING
-           ===================================================================== */}
-        {activeSection === 'assistant' && (
-          <GeminiCrateChatbot
-            activePlaylistName={activePlaylist?.name || 'Active Crate'}
-            activePlaylistTracks={activePlaylistTracks}
-            onAddSuggestedTrackToCatalog={(track) => {
-              setCustomCatalogTracks((prev) => {
-                const exists = prev.some(
-                  (p) =>
-                    p.id === track.id ||
-                    (p.artist.toLowerCase() === track.artist.toLowerCase() &&
-                      p.title.toLowerCase() === track.title.toLowerCase())
-                );
-                return exists ? prev : [track, ...prev];
-              });
-            }}
-            onAddTrackToActivePlaylist={(trackId) => addTrackToPlaylistIfAbsent(trackId)}
-          />
-        )}
-
-        {/* =====================================================================
-            STAGE 4: CRATE & EXPORT (Saved Tracks Bulk Edit | .m3u/.pls Exporter | yt-dlp CLI)
-           ===================================================================== */}
-        {activeSection === 'playlists' && activePlaylist && (
-          <div className="space-y-5">
-            {/* Sub-Tabs for Stage 4 */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3">
-              <div
-                role="tablist"
-                aria-label="Crate and Export Views"
-                className="flex items-center gap-1.5 p-1 bg-zinc-950 border border-zinc-800 rounded-lg flex-wrap"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={crateSubTab === 'tracks'}
-                  onClick={() => setCrateSubTab('tracks')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
-                    crateSubTab === 'tracks'
-                      ? 'bg-amber-400 text-zinc-950 font-semibold'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  <span>Saved Tracks &amp; Bulk Edit ({activePlaylistTracks.length})</span>
-                </button>
-
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={crateSubTab === 'exporter'}
-                  onClick={() => setCrateSubTab('exporter')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
-                    crateSubTab === 'exporter'
-                      ? 'bg-amber-400 text-zinc-950 font-semibold'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  <FileCode2 className="w-3.5 h-3.5" />
-                  <span>Playlist Exporter (.m3u / .pls / .sh)</span>
-                </button>
-
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={crateSubTab === 'ytdlp'}
-                  onClick={() => setCrateSubTab('ytdlp')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
-                    crateSubTab === 'ytdlp'
-                      ? 'bg-amber-400 text-zinc-950 font-semibold'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  <Terminal className="w-3.5 h-3.5" />
-                  <span>yt-dlp CLI Flags &amp; Script</span>
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2 text-xs text-zinc-400">
-                <span>Active Crate:</span>
-                <select
-                  aria-label="Select Active Crate"
-                  value={activePlaylistId}
-                  onChange={(e) => setActivePlaylistId(e.target.value)}
-                  className="bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
-                >
-                  {playlists.map((pl) => (
-                    <option key={pl.id} value={pl.id}>
-                      {pl.name} ({pl.trackIds.length} tracks)
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* SUB-VIEW 4A: SAVED TRACKS + BULK EDIT */}
-            {crateSubTab === 'tracks' && (
-              <section className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
-                  <div>
-                    <h2 className="text-base font-display font-semibold text-zinc-100">
-                      Saved Crate: {activePlaylist.name}
-                    </h2>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      Select multiple tracks below to apply tags or categories simultaneously, or switch to the Exporter tab to download `.m3u` / `.pls`.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setCrateSubTab('exporter')}
-                    className="px-3.5 py-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            {/* =================================================================
+                STEP 05: RANKED CRATE & EXPORT (activeStep === 'export')
+               ================================================================= */}
+            {activeStep === 'export' && activePlaylist && (
+              <div className="space-y-5">
+                {/* Clean Sub-Navigation Bar */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3">
+                  <div
+                    role="tablist"
+                    aria-label="Crate Views"
+                    className="flex items-center gap-1.5 p-1 bg-zinc-950 border border-zinc-800 rounded-lg flex-wrap"
                   >
-                    <FileCode2 className="w-3.5 h-3.5" />
-                    Export .m3u / .pls / .sh
-                  </button>
-                </div>
-
-                {activePlaylistTracks.length === 0 ? (
-                  <div className="py-12 text-center space-y-3">
-                    <Disc3 className="w-8 h-8 text-zinc-600 mx-auto" />
-                    <p className="text-sm text-zinc-300">This playlist is currently empty.</p>
                     <button
                       type="button"
-                      onClick={() => setActiveSection('discover')}
-                      className="px-4 py-2 bg-amber-400 text-zinc-950 font-semibold text-xs rounded-lg cursor-pointer"
+                      role="tab"
+                      aria-selected={exportSubTab === 'ranked'}
+                      onClick={() => setExportSubTab('ranked')}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
+                        exportSubTab === 'ranked'
+                          ? 'bg-amber-400 text-zinc-950 font-semibold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
                     >
-                      Browse Taste Discovery to Add Tracks
+                      <Compass className="w-3.5 h-3.5" />
+                      <span>Taste-Ranked Catalog ({rankedTracks.length})</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={exportSubTab === 'saved'}
+                      onClick={() => setExportSubTab('saved')}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
+                        exportSubTab === 'saved'
+                          ? 'bg-amber-400 text-zinc-950 font-semibold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>Saved Crate &amp; Bulk Edit ({activePlaylistTracks.length})</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={exportSubTab === 'exporter'}
+                      onClick={() => setExportSubTab('exporter')}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
+                        exportSubTab === 'exporter'
+                          ? 'bg-amber-400 text-zinc-950 font-semibold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <FileCode2 className="w-3.5 h-3.5" />
+                      <span>Download .m3u / .pls / .sh</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={exportSubTab === 'analytics'}
+                      onClick={() => setExportSubTab('analytics')}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
+                        exportSubTab === 'analytics'
+                          ? 'bg-amber-400 text-zinc-950 font-semibold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <BarChart3 className="w-3.5 h-3.5" />
+                      <span>Taste Analytics Charts</span>
                     </button>
                   </div>
-                ) : (
-                  <>
-                    {renderBulkEditToolbar(activePlaylistTracks, 'Saved Tracks')}
 
-                    <div className="divide-y divide-zinc-800/70">
-                      {activePlaylistTracks.map((track, idx) => {
-                        const isSelected = selectedTrackIds.includes(track.id);
-                        return (
-                          <div
-                            key={track.id}
-                            className={`py-3 px-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-zinc-800/30 rounded-lg transition-colors ${
-                              isSelected ? 'bg-amber-400/10' : ''
+                  {/* Active Playlist Selector */}
+                  <div className="flex items-center gap-2 text-xs text-zinc-400">
+                    <span>Active Crate:</span>
+                    <select
+                      aria-label="Select Active Crate"
+                      value={activePlaylistId}
+                      onChange={(e) => setActivePlaylistId(e.target.value)}
+                      className="bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
+                    >
+                      {playlists.map((pl) => (
+                        <option key={pl.id} value={pl.id}>
+                          {pl.name} ({pl.trackIds.length} tracks)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* SUB-VIEW 5A: TASTE-RANKED CATALOG */}
+                {exportSubTab === 'ranked' && (
+                  <section className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-4">
+                    <div className="flex flex-col xl:flex-row gap-3 justify-between">
+                      <div className="flex flex-1 flex-col sm:flex-row gap-2">
+                        <div className="relative flex-1">
+                          <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="text"
+                            aria-label="Filter ranked tracks"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Filter ranked tracks or query iTunes / MusicBrainz..."
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-amber-400"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <select
+                            aria-label="External Music Database"
+                            value={externalSource}
+                            onChange={(e) =>
+                              setExternalSource(e.target.value as 'itunes' | 'musicbrainz')
+                            }
+                            className="bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-2 text-xs text-zinc-200 focus:outline-none focus:border-amber-400"
+                          >
+                            <option value="itunes">iTunes API</option>
+                            <option value="musicbrainz">MusicBrainz API</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={handleExternalCatalogSearch}
+                            disabled={isSearchingExternal}
+                            className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-amber-300 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                          >
+                            <RefreshCw
+                              className={`w-3.5 h-3.5 ${isSearchingExternal ? 'animate-spin' : ''}`}
+                            />
+                            Fetch Live Catalog
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <SlidersHorizontal className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                        <span className="text-xs text-zinc-400 whitespace-nowrap">Algorithm:</span>
+                        <div className="flex items-center gap-1 p-1 bg-zinc-950 border border-zinc-800 rounded-lg">
+                          {(
+                            [
+                              { id: 'hybrid-affinity', label: 'Hybrid Affinity' },
+                              { id: 'deep-cuts', label: 'Deep Cuts' },
+                              { id: 'tag-cluster', label: 'Tag Cluster' },
+                              { id: 'high-tempo-sonic', label: 'Sonic Tempo' },
+                            ] as const
+                          ).map((alg) => (
+                            <button
+                              key={alg.id}
+                              type="button"
+                              onClick={() => setAlgorithmMode(alg.id)}
+                              className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                                algorithmMode === alg.id
+                                  ? 'bg-amber-400 text-zinc-950 font-semibold'
+                                  : 'text-zinc-400 hover:text-zinc-200'
+                              }`}
+                            >
+                              {alg.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between flex-wrap gap-2 pt-1 border-b border-zinc-800 pb-3">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {categoriesList.map((cat) => (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => setCategoryFilter(cat)}
+                            className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                              categoryFilter === cat
+                                ? 'bg-zinc-800 text-amber-300 border border-zinc-700'
+                                : 'text-zinc-400 hover:text-zinc-200'
                             }`}
                           >
-                            <div className="flex items-start sm:items-center gap-3">
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => setShowDiscoverBulkBar((prev) => !prev)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1.5 cursor-pointer border ${
+                            showDiscoverBulkBar || selectedTrackIds.length > 0
+                              ? 'bg-amber-400/20 text-amber-300 border-amber-400/40'
+                              : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                          }`}
+                        >
+                          <Layers className="w-3.5 h-3.5" />
+                          Bulk Edit ({selectedTrackIds.length})
+                        </button>
+                        {externalStatusMsg && (
+                          <span className="text-xs text-amber-300/90 font-mono">
+                            {externalStatusMsg}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {(showDiscoverBulkBar || selectedTrackIds.length > 0) &&
+                      renderBulkEditToolbar(rankedTracks, 'Tracks')}
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-zinc-800 text-[11px] font-medium text-zinc-400">
+                            <th className="py-2.5 px-2.5 w-8">
                               <input
                                 type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleSelectTrack(track.id)}
-                                aria-label={`Select ${track.artist} - ${track.title}`}
-                                className="mt-1 sm:mt-0 rounded border-zinc-700 bg-zinc-900 text-amber-400 focus:ring-amber-400 cursor-pointer"
+                                aria-label="Select all visible tracks"
+                                checked={
+                                  rankedTracks.length > 0 &&
+                                  rankedTracks.every((t) => selectedTrackIds.includes(t.id))
+                                }
+                                onChange={() => selectTracksScope(rankedTracks)}
+                                className="rounded border-zinc-700 bg-zinc-900 text-amber-400 focus:ring-amber-400 cursor-pointer"
                               />
-                              <span className="font-mono tabular-nums text-xs text-zinc-500 w-6">
-                                {String(idx + 1).padStart(2, '0')}
-                              </span>
-                              <div className="space-y-0.5">
-                                <div className="text-xs font-semibold text-zinc-100">
-                                  {track.artist} — {track.title}
-                                </div>
-                                <div className="text-xs text-zinc-400 flex items-center flex-wrap gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleFavoriteCategory(track.category)}
-                                    className="text-amber-300 hover:underline font-medium cursor-pointer"
-                                  >
-                                    {track.category}
-                                  </button>
-                                  <span aria-hidden="true">·</span>
-                                  {track.tags.map((t, tIdx) => (
-                                    <React.Fragment key={t}>
-                                      {tIdx > 0 && <span aria-hidden="true">/</span>}
+                            </th>
+                            <th className="py-2.5 px-3">Match</th>
+                            <th className="py-2.5 px-3">Track &amp; Artist</th>
+                            <th className="py-2.5 px-3 hidden md:table-cell">Category &amp; Sonic Tags</th>
+                            <th className="py-2.5 px-3 hidden sm:table-cell text-right">BPM / Time</th>
+                            <th className="py-2.5 px-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-800/60 text-xs">
+                          {rankedTracks.map((track) => {
+                            const inPlaylist = activePlaylist?.trackIds.includes(track.id);
+                            const isSelected = selectedTrackIds.includes(track.id);
+                            const isFavArtist = favoriteArtists.includes(track.artist);
+                            const singleYtDlpCmd = generateYtDlpCommand([track], ytDlpOptions);
+
+                            return (
+                              <tr
+                                key={track.id}
+                                className={`hover:bg-zinc-800/40 transition-colors ${
+                                  isSelected ? 'bg-amber-400/5' : ''
+                                }`}
+                              >
+                                <td className="py-3 px-2.5 align-middle">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleSelectTrack(track.id)}
+                                    aria-label={`Select ${track.artist} - ${track.title}`}
+                                    className="rounded border-zinc-700 bg-zinc-900 text-amber-400 focus:ring-amber-400 cursor-pointer"
+                                  />
+                                </td>
+
+                                <td className="py-3 px-3 align-middle whitespace-nowrap">
+                                  <span className="font-mono tabular-nums font-semibold text-amber-400 text-sm">
+                                    {track.matchScore}%
+                                  </span>
+                                </td>
+
+                                <td className="py-3 px-3 align-middle">
+                                  <div className="flex items-center gap-2">
+                                    {track.previewAudioUrl && (
                                       <button
                                         type="button"
-                                        onClick={() => toggleFavoriteTag(t)}
-                                        className="text-zinc-300 hover:text-amber-300 font-mono text-[11px] cursor-pointer"
+                                        onClick={() => handlePlayPreview(track)}
+                                        aria-label={
+                                          playingPreviewTrackId === track.id
+                                            ? `Stop preview for ${track.title}`
+                                            : `Play audio preview for ${track.title}`
+                                        }
+                                        className="w-6 h-6 rounded-full bg-amber-400/20 text-amber-300 flex items-center justify-center hover:bg-amber-400 hover:text-zinc-950 transition-colors shrink-0 cursor-pointer"
                                       >
-                                        #{t}
+                                        {playingPreviewTrackId === track.id ? (
+                                          <Square className="w-3 h-3" />
+                                        ) : (
+                                          <Play className="w-3 h-3" />
+                                        )}
                                       </button>
-                                    </React.Fragment>
-                                  ))}
-                                  <span aria-hidden="true">·</span>
-                                  <span className="font-mono text-zinc-500">
-                                    {formatDuration(track.durationSec)}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <a
-                                href={track.youtubeUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="px-2.5 py-1 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 rounded-md text-xs inline-flex items-center gap-1"
-                              >
-                                YouTube <ExternalLink className="w-3 h-3" />
-                              </a>
-                              <button
-                                type="button"
-                                onClick={() => toggleTrackInPlaylist(track.id)}
-                                className="px-2.5 py-1 bg-zinc-950 hover:bg-rose-950/60 text-zinc-400 hover:text-rose-300 border border-zinc-800 rounded-md text-xs cursor-pointer"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
+                                    )}
+                                    <div>
+                                      <div className="font-medium text-zinc-100 leading-snug">
+                                        {track.title}
+                                      </div>
+                                      <div className="flex items-center gap-1.5 text-zinc-400 mt-0.5 whitespace-nowrap">
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleFavoriteArtist(track.artist)}
+                                          className={`hover:text-amber-300 transition-colors cursor-pointer ${
+                                            isFavArtist ? 'text-amber-300 font-medium' : ''
+                                          }`}
+                                        >
+                                          {track.artist} {isFavArtist ? '★' : '☆'}
+                                        </button>
+                                        <span aria-hidden="true" className="text-zinc-600">·</span>
+                                        <span className="text-zinc-500">{track.source}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+
+                                <td className="py-3 px-3 align-middle hidden md:table-cell">
+                                  <div className="text-zinc-300 text-xs">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleFavoriteCategory(track.category)}
+                                      className="hover:text-amber-300 transition-colors cursor-pointer font-medium"
+                                    >
+                                      {track.category}
+                                    </button>
+                                    <span aria-hidden="true" className="mx-1.5 text-zinc-600">
+                                      ·
+                                    </span>
+                                    <span className="text-zinc-400">
+                                      {track.tags.map((t, idx) => {
+                                        const isFavTag = favoriteTags.includes(t.toLowerCase());
+                                        return (
+                                          <React.Fragment key={t}>
+                                            {idx > 0 && (
+                                              <span aria-hidden="true" className="mx-1 text-zinc-600">
+                                                /
+                                              </span>
+                                            )}
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleFavoriteTag(t)}
+                                              className={`hover:text-amber-300 transition-colors cursor-pointer ${
+                                                isFavTag ? 'text-amber-300 font-medium' : ''
+                                              }`}
+                                            >
+                                              #{t}
+                                            </button>
+                                          </React.Fragment>
+                                        );
+                                      })}
+                                    </span>
+                                  </div>
+                                </td>
+
+                                <td className="py-3 px-3 align-middle hidden sm:table-cell text-right font-mono tabular-nums text-zinc-400 whitespace-nowrap">
+                                  {track.bpm} BPM · {formatDuration(track.durationSec)}
+                                </td>
+
+                                <td className="py-3 px-3 align-middle text-right whitespace-nowrap">
+                                  <div className="inline-flex items-center gap-1.5">
+                                    <a
+                                      href={track.youtubeUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-2.5 py-1.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1"
+                                    >
+                                      <span>YouTube</span>
+                                      <ExternalLink className="w-3 h-3 text-zinc-400" />
+                                    </a>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => copyToClipboard(singleYtDlpCmd, `cmd-${track.id}`)}
+                                      className="px-2.5 py-1.5 bg-zinc-950 hover:bg-zinc-800 text-amber-300 border border-zinc-800 rounded-lg text-xs font-mono transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                    >
+                                      {copiedId === `cmd-${track.id}` ? (
+                                        <>
+                                          <Check className="w-3 h-3 text-emerald-400" />
+                                          <span>Copied</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Terminal className="w-3 h-3" />
+                                          <span>yt-dlp</span>
+                                        </>
+                                      )}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleTrackInPlaylist(track.id)}
+                                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1 cursor-pointer ${
+                                        inPlaylist
+                                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                          : 'bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold'
+                                      }`}
+                                    >
+                                      {inPlaylist ? (
+                                        <>
+                                          <Check className="w-3 h-3" />
+                                          <span>Saved</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Plus className="w-3 h-3" />
+                                          <span>Save</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
-                  </>
+                  </section>
                 )}
-              </section>
-            )}
 
-            {/* SUB-VIEW 4B: PLAYLIST EXPORTER (.m3u / .pls / .sh) */}
-            {crateSubTab === 'exporter' && (
-              <PlaylistExporter
-                tracks={allTracksPool}
-                savedTrackIds={activePlaylist.trackIds}
-                defaultPlaylistName={activePlaylist.name}
-                ytDlpOptions={ytDlpOptions}
-                selectedTrackIds={selectedTrackIds}
-                onChangeSelectedTrackIds={setSelectedTrackIds}
-              />
-            )}
+                {/* SUB-VIEW 5B: SAVED CRATE + BULK EDIT */}
+                {exportSubTab === 'saved' && (
+                  <section className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
+                      <div>
+                        <h2 className="text-base font-display font-semibold text-zinc-100">
+                          Saved Crate: {activePlaylist.name} ({activePlaylistTracks.length} tracks)
+                        </h2>
+                        <p className="text-xs text-zinc-400 mt-0.5">
+                          Select multiple tracks below to apply tags or categories simultaneously.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setExportSubTab('exporter')}
+                        className="px-3.5 py-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                      >
+                        <FileCode2 className="w-3.5 h-3.5" />
+                        Download .m3u / .pls / .sh
+                      </button>
+                    </div>
 
-            {/* SUB-VIEW 4C: YT-DLP CLI CONFIGURATOR */}
-            {crateSubTab === 'ytdlp' && (
-              <section className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
-                  <div>
-                    <h2 className="text-base font-display font-semibold text-zinc-100">
-                      yt-dlp Command &amp; Batch Script Configurator
-                    </h2>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      Customize audio format, SponsorBlock trimming, and cookie flags for{' '}
-                      <span className="text-amber-300 font-medium">{activePlaylist.name}</span>.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => copyToClipboard(generatedPlaylistCommand, 'main-ytdlp')}
-                    className="px-3.5 py-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                  >
-                    {copiedId === 'main-ytdlp' ? (
-                      <>
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Copied Script!</span>
-                      </>
+                    {activePlaylistTracks.length === 0 ? (
+                      <div className="py-12 text-center space-y-3">
+                        <Disc3 className="w-8 h-8 text-zinc-600 mx-auto" />
+                        <p className="text-sm text-zinc-300">This playlist is currently empty.</p>
+                        <button
+                          type="button"
+                          onClick={() => setExportSubTab('ranked')}
+                          className="px-4 py-2 bg-amber-400 text-zinc-950 font-semibold text-xs rounded-lg cursor-pointer"
+                        >
+                          Browse Taste-Ranked Catalog
+                        </button>
+                      </div>
                     ) : (
                       <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Copy Full Command</span>
+                        {renderBulkEditToolbar(activePlaylistTracks, 'Saved Tracks')}
+
+                        <div className="divide-y divide-zinc-800/70">
+                          {activePlaylistTracks.map((track, idx) => {
+                            const isSelected = selectedTrackIds.includes(track.id);
+                            return (
+                              <div
+                                key={track.id}
+                                className={`py-3 px-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-zinc-800/30 rounded-lg transition-colors ${
+                                  isSelected ? 'bg-amber-400/10' : ''
+                                }`}
+                              >
+                                <div className="flex items-start sm:items-center gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleSelectTrack(track.id)}
+                                    aria-label={`Select ${track.artist} - ${track.title}`}
+                                    className="mt-1 sm:mt-0 rounded border-zinc-700 bg-zinc-900 text-amber-400 focus:ring-amber-400 cursor-pointer"
+                                  />
+                                  <span className="font-mono tabular-nums text-xs text-zinc-500 w-6">
+                                    {String(idx + 1).padStart(2, '0')}
+                                  </span>
+                                  <div className="space-y-0.5">
+                                    <div className="text-xs font-semibold text-zinc-100">
+                                      {track.artist} — {track.title}
+                                    </div>
+                                    <div className="text-xs text-zinc-400 flex items-center flex-wrap gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleFavoriteCategory(track.category)}
+                                        className="text-amber-300 hover:underline font-medium cursor-pointer"
+                                      >
+                                        {track.category}
+                                      </button>
+                                      <span aria-hidden="true">·</span>
+                                      {track.tags.map((t, tIdx) => (
+                                        <React.Fragment key={t}>
+                                          {tIdx > 0 && <span aria-hidden="true">/</span>}
+                                          <button
+                                            type="button"
+                                            onClick={() => toggleFavoriteTag(t)}
+                                            className="text-zinc-300 hover:text-amber-300 font-mono text-[11px] cursor-pointer"
+                                          >
+                                            #{t}
+                                          </button>
+                                        </React.Fragment>
+                                      ))}
+                                      <span aria-hidden="true">·</span>
+                                      <span className="font-mono text-zinc-500">
+                                        {formatDuration(track.durationSec)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <a
+                                    href={track.youtubeUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-2.5 py-1 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 rounded-md text-xs inline-flex items-center gap-1"
+                                  >
+                                    YouTube <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleTrackInPlaylist(track.id)}
+                                    className="px-2.5 py-1 bg-zinc-950 hover:bg-rose-950/60 text-zinc-400 hover:text-rose-300 border border-zinc-800 rounded-md text-xs cursor-pointer"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </>
                     )}
-                  </button>
-                </div>
+                  </section>
+                )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div className="space-y-1.5">
-                    <label htmlFor="ytdlp-cookie-source" className="block text-xs font-medium text-zinc-300">
-                      YouTube Cookie Authentication
-                    </label>
-                    <select
-                      id="ytdlp-cookie-source"
-                      value={ytDlpOptions.cookieSource || 'browser'}
-                      onChange={(e) =>
-                        setYtDlpOptions((prev) => ({
-                          ...prev,
-                          cookieSource: e.target.value as YtDlpCookieSource,
-                        }))
-                      }
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
-                    >
-                      <option value="browser">Browser Cookies (--cookies-from-browser)</option>
-                      <option value="file">Netscape File (--cookies cookies.txt)</option>
-                      <option value="none">No Cookies (Public Only)</option>
-                    </select>
-                  </div>
+                {/* SUB-VIEW 5C: PLAYLIST EXPORTER (.m3u / .pls / .sh) */}
+                {exportSubTab === 'exporter' && (
+                  <PlaylistExporter
+                    tracks={allTracksPool}
+                    savedTrackIds={activePlaylist.trackIds}
+                    defaultPlaylistName={activePlaylist.name}
+                    ytDlpOptions={ytDlpOptions}
+                    selectedTrackIds={selectedTrackIds}
+                    onChangeSelectedTrackIds={setSelectedTrackIds}
+                  />
+                )}
 
-                  {ytDlpOptions.cookieSource === 'file' ? (
-                    <div className="space-y-1.5">
-                      <label htmlFor="ytdlp-cookie-file" className="block text-xs font-medium text-zinc-300">
-                        Cookie File Path (--cookies)
-                      </label>
-                      <input
-                        id="ytdlp-cookie-file"
-                        type="text"
-                        value={ytDlpOptions.cookieFilePath || './cookies.txt'}
-                        onChange={(e) =>
-                          setYtDlpOptions((prev) => ({ ...prev, cookieFilePath: e.target.value }))
-                        }
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs font-mono text-zinc-100 focus:outline-none focus:border-amber-400"
-                      />
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      <label htmlFor="ytdlp-cookie-browser" className="block text-xs font-medium text-zinc-300">
-                        Cookie Browser (--cookies-from-browser)
-                      </label>
-                      <select
-                        id="ytdlp-cookie-browser"
-                        disabled={ytDlpOptions.cookieSource === 'none'}
-                        value={ytDlpOptions.cookieBrowser || 'firefox'}
-                        onChange={(e) =>
-                          setYtDlpOptions((prev) => ({
-                            ...prev,
-                            cookieSource: 'browser',
-                            cookieBrowser: e.target.value as YtDlpCookieBrowser,
-                          }))
-                        }
-                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 disabled:opacity-50 focus:outline-none focus:border-amber-400"
-                      >
-                        <option value="firefox">Firefox (firefox)</option>
-                        <option value="chrome">Chrome (chrome)</option>
-                        <option value="brave">Brave (brave)</option>
-                        <option value="edge">Edge (edge)</option>
-                        <option value="safari">Safari (safari)</option>
-                      </select>
-                    </div>
-                  )}
-
-                  <div className="space-y-1.5">
-                    <label htmlFor="ytdlp-format" className="block text-xs font-medium text-zinc-300">
-                      Target Audio / Video Format
-                    </label>
-                    <select
-                      id="ytdlp-format"
-                      value={ytDlpOptions.format}
-                      onChange={(e) =>
-                        setYtDlpOptions((prev) => ({
-                          ...prev,
-                          format: e.target.value as YtDlpOptions['format'],
-                        }))
-                      }
-                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
-                    >
-                      <option value="mp3">MP3 Audio (-x --audio-format mp3)</option>
-                      <option value="flac">FLAC Lossless (-x --audio-format flac)</option>
-                      <option value="opus">Opus High Efficiency (-x --audio-format opus)</option>
-                      <option value="m4a">M4A / AAC (-x --audio-format m4a)</option>
-                      <option value="mp4-video">MP4 Best Video + Audio</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs text-zinc-400 flex-wrap gap-2">
-                    <span className="font-mono">Generated Terminal Output</span>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          downloadFile(
-                            `download-${activePlaylist.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.sh`,
-                            generatedPlaylistCommand
-                          )
-                        }
-                        className="text-amber-300 hover:underline cursor-pointer"
-                      >
-                        Download .sh Script
-                      </button>
-                      <span>·</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          downloadFile(
-                            `${activePlaylist.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.m3u`,
-                            generateM3u8Playlist(activePlaylist.name, activePlaylistTracks)
-                          )
-                        }
-                        className="text-amber-300 hover:underline cursor-pointer"
-                      >
-                        Download .m3u
-                      </button>
-                      <span>·</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          downloadFile(
-                            `${activePlaylist.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pls`,
-                            generatePlsPlaylist(activePlaylistTracks, {
-                              playlistName: activePlaylist.name,
-                            })
-                          )
-                        }
-                        className="text-amber-300 hover:underline cursor-pointer"
-                      >
-                        Download .pls
-                      </button>
-                    </div>
-                  </div>
-                  <pre className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-xs font-mono text-amber-200/95 overflow-x-auto leading-relaxed">
-                    {generatedPlaylistCommand}
-                  </pre>
-                </div>
-              </section>
+                {/* SUB-VIEW 5D: TASTE ANALYTICS CHARTS */}
+                {exportSubTab === 'analytics' && (
+                  <TasteAnalytics catalogTracks={allTracksPool} />
+                )}
+              </div>
             )}
-          </div>
-        )}
-
-        {/* =====================================================================
-            STAGE 5: GITHUB REMOTE & PAGES CI/CD AUTO-DEPLOY
-           ===================================================================== */}
-        {activeSection === 'deploy' && (
-          <GitHubPagesDeployer
-            tasteProfileSnapshot={{
-              favoriteArtists,
-              favoriteTags,
-              favoriteCategories,
-              playlists,
-              feedText,
-            }}
-            onImportTasteBackup={(parsed) => {
-              hydrateFavorites({
-                favoriteArtists: Array.isArray(parsed.favoriteArtists)
-                  ? (parsed.favoriteArtists as string[])
-                  : undefined,
-                favoriteTags: Array.isArray(parsed.favoriteTags)
-                  ? (parsed.favoriteTags as string[])
-                  : undefined,
-                favoriteCategories: Array.isArray(parsed.favoriteCategories)
-                  ? (parsed.favoriteCategories as string[])
-                  : undefined,
-              });
-              if (Array.isArray(parsed.playlists) && parsed.playlists.length > 0) {
-                setPlaylists(parsed.playlists as Playlist[]);
-                setActivePlaylistId((parsed.playlists[0] as Playlist).id);
-              }
-              if (typeof parsed.feedText === 'string') {
-                setFeedText(parsed.feedText);
-                setFeedTracks(parseYouTubeFeedInput(parsed.feedText));
-              }
-            }}
-          />
+          </>
         )}
       </main>
 
       {/* Quiet Footer */}
       <footer className="border-t border-zinc-900 py-4 px-6 text-center text-xs text-zinc-500">
-        CrateDig YT · Guided 5-Step Music Taste, Gemini Crate AI &amp; yt-dlp Pipeline
+        CrateDig YT · 5-Step Guided Music Taste, Gemini Crate AI &amp; yt-dlp Pipeline
       </footer>
     </div>
   );
