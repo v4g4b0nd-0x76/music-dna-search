@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Markdown from 'react-markdown';
 import {
   Search,
   Sparkles,
@@ -11,11 +12,13 @@ import {
   Heart,
   Loader2,
   Music,
+  Globe,
 } from 'lucide-react';
 import { MusicTrack } from '@/lib/music-data';
 import { resolveMockTrackSearch } from '@/lib/track-search';
 import { formatDuration } from '@/lib/taste-engine';
 import { useFavorites } from '@/context/FavoritesContext';
+import { GroundingWebSource } from '@/lib/gemini-crate-assistant';
 
 export interface TrackSearchProps {
   onAddTrackToCatalog?: (track: MusicTrack) => void;
@@ -49,6 +52,15 @@ export default function TrackSearch({
   const [copiedTrackId, setCopiedTrackId] = useState<string | null>(null);
   const [savedAllTrackId, setSavedAllTrackId] = useState<string | null>(null);
 
+  // Google Search Grounding state (gemini-3.8-flash + googleSearch)
+  const [isGroundingSearch, setIsGroundingSearch] = useState<boolean>(false);
+  const [groundedResult, setGroundedResult] = useState<{
+    query: string;
+    summary: string;
+    sources: GroundingWebSource[];
+    searchQueries: string[];
+  } | null>(null);
+
   const runTrackLookup = (inputValue: string) => {
     const trimmed = inputValue.trim();
     if (!trimmed) {
@@ -67,6 +79,40 @@ export default function TrackSearch({
         matched.forEach((t) => onAddTrackToCatalog(t));
       }
     }, 150);
+  };
+
+  const runGoogleSearchGrounding = async (inputValue: string) => {
+    const trimmed = inputValue.trim();
+    if (!trimmed) {
+      setErrorMsg('Please enter an artist, song, or label to research with Google Search Grounding.');
+      return;
+    }
+    setErrorMsg('');
+    setIsGroundingSearch(true);
+
+    try {
+      const response = await fetch('/api/gemini/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: trimmed }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to run Google Search Grounding.');
+      }
+      setGroundedResult({
+        query: data.query || trimmed,
+        summary: data.summary || '',
+        sources: Array.isArray(data.sources) ? data.sources : [],
+        searchQueries: Array.isArray(data.searchQueries) ? data.searchQueries : [],
+      });
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : 'Unable to complete Google Search Grounding.'
+      );
+    } finally {
+      setIsGroundingSearch(false);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -108,10 +154,10 @@ export default function TrackSearch({
         <div>
           <h2 className="text-sm font-display font-semibold text-zinc-100 flex items-center gap-2">
             <Music className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>TrackSearch — Instant YouTube URL & Song Inspector</span>
+            <span>TrackSearch — Instant YouTube URL, Song Inspector &amp; Google Search Grounding</span>
           </h2>
           <p className="text-xs text-zinc-400 mt-0.5">
-            Paste any YouTube video URL or enter an <code className="font-mono text-zinc-300">Artist - Song</code> title to fetch track details and add its artist, tags, or category to your Favorites.
+            Paste any YouTube video URL or enter an <code className="font-mono text-zinc-300">Artist - Song</code> title to fetch track details, or run live Google Search Grounding (<code className="font-mono text-emerald-300">gemini-3.8-flash</code>) for vinyl pressings &amp; label lore.
           </p>
         </div>
 
@@ -159,29 +205,103 @@ export default function TrackSearch({
             className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-amber-400"
           />
         </div>
-        <button
-          type="submit"
-          disabled={isFetching}
-          className="px-4 py-2 bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-zinc-950 font-semibold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-        >
-          {isFetching ? (
-            <>
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>Fetching Details...</span>
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Fetch Track Details</span>
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="submit"
+            disabled={isFetching}
+            className="px-4 py-2 bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-zinc-950 font-semibold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+          >
+            {isFetching ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Fetching Details...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Fetch Track Details</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            disabled={isGroundingSearch}
+            onClick={() => runGoogleSearchGrounding(queryInput || 'Bicep Chroma 2024 vinyl')}
+            className="px-3.5 py-2 bg-zinc-950 hover:bg-zinc-800 disabled:opacity-50 text-emerald-300 border border-emerald-500/40 font-semibold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+          >
+            {isGroundingSearch ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Searching Google...</span>
+              </>
+            ) : (
+              <>
+                <Globe className="w-3.5 h-3.5" />
+                <span>Google Search Grounding</span>
+              </>
+            )}
+          </button>
+        </div>
       </form>
 
       {errorMsg && (
         <p role="alert" className="text-xs text-rose-400 font-medium">
           {errorMsg}
         </p>
+      )}
+
+      {/* Google Search Grounding Results Card */}
+      {groundedResult && (
+        <div className="bg-zinc-950/90 border border-emerald-500/40 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2 border-b border-zinc-800 pb-2">
+            <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
+              <Globe className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                Google Search Grounded Research: &ldquo;{groundedResult.query}&rdquo;
+              </span>
+              <span className="font-mono text-[11px] text-zinc-400">
+                (gemini-3.8-flash)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setGroundedResult(null)}
+              className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+
+          <div className="markdown-body text-xs leading-relaxed text-zinc-200 space-y-1.5 [&_ul]:list-disc [&_ul]:pl-5 [&_h3]:font-semibold [&_h3]:text-zinc-100">
+            <Markdown>{groundedResult.summary}</Markdown>
+          </div>
+
+          {groundedResult.sources.length > 0 && (
+            <div className="pt-2 border-t border-zinc-800/80 space-y-1.5">
+              <div className="text-[11px] font-mono text-zinc-400">
+                Web Citations ({groundedResult.sources.length}):
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {groundedResult.sources.map((src) => (
+                  <a
+                    key={src.uri}
+                    href={src.uri}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-md text-xs text-zinc-200 hover:text-amber-300 transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <span className="truncate max-w-[240px]">{src.title}</span>
+                    <span className="text-[10px] font-mono text-zinc-500">
+                      ({src.domain})
+                    </span>
+                    <ExternalLink className="w-3 h-3 text-zinc-400" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Fetched Track Results */}
