@@ -1,0 +1,6 @@
+{
+  "name": "CrateDig YT — Music Taste & yt-dlp Playlist Workbench",
+  "description": "Analyze your YouTube music feed, discover tracks via taste algorithms and MusicBrainz/iTunes catalogs, save favorite artists/tags/categories, build playlists, and generate ready-to-run yt-dlp download scripts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

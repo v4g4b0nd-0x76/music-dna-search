@@ -1,0 +1,43 @@
+{
+  "favoriteArtists": [
+    "Bicep",
+    "Khruangbin",
+    "Overmono"
+  ],
+  "favoriteTags": [
+    "breakbeat",
+    "psychedelic-funk",
+    "warm-analog",
+    "analog-synth"
+  ],
+  "favoriteCategories": [
+    "Electronic",
+    "Indie & Funk"
+  ],
+  "playlists": [
+    {
+      "id": "pl-late-night",
+      "name": "Late Night Analog & Breaks",
+      "description": "Warm analog synth, breakbeat, and hypnotic grooves ready for yt-dlp.",
+      "createdAt": "2026-11-04",
+      "trackIds": [
+        "trk-bicep-glue",
+        "trk-overmono-goodlies",
+        "trk-khruangbin-time",
+        "trk-fp-bias"
+      ]
+    },
+    {
+      "id": "pl-psych-funk",
+      "name": "Sunlit Psych & Filter Disco",
+      "description": "Psychedelic funk, guitar grooves, and downtempo rhythms.",
+      "createdAt": "2026-11-04",
+      "trackIds": [
+        "trk-tame-letithappen",
+        "trk-parcels-overnight",
+        "trk-locket-crumb"
+      ]
+    }
+  ],
+  "feedText": "https://www.youtube.com/watch?v=5qap5aO4i9A - Bicep - Glue (Official Music Video) [Electronic / Breakbeat]\nhttps://www.youtube.com/watch?v=2Y6Nne8RvaA - Khruangbin - Time (You and I) [Psychedelic Funk / Indie]\nhttps://www.youtube.com/watch?v=pFptt7Cargc - Tame Impala - Let It Happen [Psychedelic Rock / Synthpop]\nhttps://www.youtube.com/watch?v=8GW6sLrK40k - HOME - Resonance [Synthwave / Chillwave]\nhttps://www.youtube.com/watch?v=c1f7eZ8c1u4 - Floating Points - Bias [IDM / Leftfield Electronic]\nhttps://www.youtube.com/watch?v=4NRXx6U8ABQ - Bonobo - Kerala [Downtempo / Nu-Jazz]\nhttps://www.youtube.com/watch?v=E7wJTI-1dvQ - Four Tet - Baby [Microhouse / Folktronica]"
+}
