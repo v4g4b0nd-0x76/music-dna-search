@@ -68,9 +68,22 @@ export interface YtDlpFeedCookieConfig {
   maxDurationSec?: number;
 }
 
+export type YtDlpMediaMode = 'audio' | 'video';
+
+export type YtDlpVideoResolution = 'best' | '2160' | '1440' | '1080' | '720' | '480';
+
+export type YtDlpGuiPresetId =
+  | 'audio-best-mp3'
+  | 'audio-lossless-flac'
+  | 'audio-compact-opus'
+  | 'video-1080p-mp4'
+  | 'video-4k-best'
+  | 'video-720p-fast';
+
 export interface YtDlpOptions {
-  format: 'mp3' | 'flac' | 'opus' | 'm4a' | 'mp4-video';
-  audioQuality: '0' | '5' | '320K' | '192K';
+  format: 'mp3' | 'flac' | 'opus' | 'm4a' | 'wav' | 'mp4-video' | 'mkv-video';
+  audioQuality: '0' | '2' | '5' | '320K' | '256K' | '192K' | '128K';
+  videoResolution?: YtDlpVideoResolution;
   embedThumbnail: boolean;
   embedMetadata: boolean;
   addSubtitles: boolean;
@@ -84,6 +97,7 @@ export interface YtDlpOptions {
   cookieFilePath?: string;
   musicOnlyFilter?: boolean;
   maxDurationSec?: number;
+  customTargetUrl?: string;
 }
 
 export type AlgorithmMode = 'hybrid-affinity' | 'deep-cuts' | 'high-tempo-sonic' | 'tag-cluster';

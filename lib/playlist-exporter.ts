@@ -1,7 +1,7 @@
 import { MusicTrack, YtDlpOptions } from './music-data';
 import { generateYtDlpCommand } from './taste-engine';
 
-export type PlaylistExportFormat = 'm3u' | 'pls' | 'ytdlp-sh';
+export type PlaylistExportFormat = 'm3u' | 'pls' | 'json' | 'ytdlp-sh';
 
 export type PlaylistPathMode = 'youtube-url' | 'local-audio';
 
@@ -14,11 +14,37 @@ export interface PlaylistExportOptions {
   ytDlpOptions?: YtDlpOptions;
 }
 
+export interface PlaylistJsonTrackEntry {
+  index: number;
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  category: string;
+  tags: string[];
+  bpm: number;
+  durationSec: number;
+  year: number;
+  youtubeUrl: string;
+  ytDlpQuery: string;
+  source: string;
+  location: string;
+}
+
+export interface PlaylistJsonMetadataExport {
+  playlistName: string;
+  slug: string;
+  exportedAt: string;
+  trackCount: number;
+  totalDurationSec: number;
+  tracks: PlaylistJsonTrackEntry[];
+}
+
 export interface PlaylistExportPayload {
   content: string;
   filename: string;
   mimeType: string;
-  extension: 'm3u' | 'pls' | 'sh';
+  extension: 'm3u' | 'pls' | 'json' | 'sh';
   trackCount: number;
 }
 
@@ -127,7 +153,51 @@ export function generatePlsPlaylist(
 }
 
 /**
- * Builds the complete downloadable payload (.m3u, .pls, or yt-dlp .sh script) for a list of selected tracks.
+ * Generates a structured JSON (.json) metadata file containing the playlist title,
+ * track titles, artist names, and discovery metadata for external tracking.
+ */
+export function generateJsonPlaylist(
+  tracks: MusicTrack[],
+  options: Omit<PlaylistExportOptions, 'format'>
+): string {
+  const playlistTitle = (options.playlistName || 'Favorite Tracks Crate').trim();
+  const slug = slugifyPlaylistName(playlistTitle);
+  const pathMode = options.pathMode || 'youtube-url';
+  const ext = options.audioExtension || 'mp3';
+  const totalDurationSec = tracks.reduce(
+    (sum, t) => sum + Math.max(0, Math.round(t.durationSec || 0)),
+    0
+  );
+
+  const payload: PlaylistJsonMetadataExport = {
+    playlistName: playlistTitle,
+    slug,
+    exportedAt: new Date().toISOString(),
+    trackCount: tracks.length,
+    totalDurationSec,
+    tracks: tracks.map((track, idx) => ({
+      index: idx + 1,
+      id: track.id,
+      title: track.title,
+      artist: track.artist,
+      album: track.album || '',
+      category: track.category,
+      tags: [...track.tags],
+      bpm: track.bpm,
+      durationSec: Math.max(0, Math.round(track.durationSec || 0)),
+      year: track.year,
+      youtubeUrl: track.youtubeUrl,
+      ytDlpQuery: track.ytDlpQuery,
+      source: track.source,
+      location: resolveTrackExportLocation(track, pathMode, ext),
+    })),
+  };
+
+  return JSON.stringify(payload, null, 2);
+}
+
+/**
+ * Builds the complete downloadable payload (.m3u, .pls, .json, or yt-dlp .sh script) for a list of selected tracks.
  */
 export function buildPlaylistExportPayload(
   tracks: MusicTrack[],
@@ -142,6 +212,17 @@ export function buildPlaylistExportPayload(
       filename: `${slug}.pls`,
       mimeType: 'audio/x-scpls;charset=utf-8',
       extension: 'pls',
+      trackCount: tracks.length,
+    };
+  }
+
+  if (options.format === 'json') {
+    const content = generateJsonPlaylist(tracks, options);
+    return {
+      content,
+      filename: `${slug}.json`,
+      mimeType: 'application/json;charset=utf-8',
+      extension: 'json',
       trackCount: tracks.length,
     };
   }

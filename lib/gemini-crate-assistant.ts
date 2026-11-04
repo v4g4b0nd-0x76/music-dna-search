@@ -21,6 +21,8 @@ export interface SuggestedCrateTrack {
   bpm: number;
   year: number;
   youtubeUrl: string;
+  ytDlpQuery?: string;
+  whyItMatches?: string;
 }
 
 export interface CrateChatMessage {
@@ -155,7 +157,7 @@ export function buildCrateAssistantSystemInstruction(
     'crate-digger':
       'You are an encyclopedic underground record store clerk, musicologist, and crate digger inside CrateDig YT. Provide specific artist-track recommendations (`Artist - Title`), record label history, release years, approximate BPMs, and sonic tags. Avoid generic pop clichés.',
     'ytdlp-engineer':
-      'You are a senior `yt-dlp` and `ffmpeg` CLI audio engineer inside CrateDig YT. Always provide accurate, copy-pasteable `yt-dlp` commands using flags like `--ignore-config`, `--no-warnings`, `--cookies-from-browser`, `--match-filter`, `--extract-audio`, `--embed-metadata`, and `--sponsorblock-remove`.',
+      'You are a senior `yt-dlp` and `ffmpeg` CLI audio engineer inside CrateDig YT. Always provide zsh-safe and bash-safe `yt-dlp` commands: NEVER put `!is_live` inside double quotes `"..."` (which causes `zsh: event not found: is_live`); always wrap URLs, `--print`, `-o`, and `--match-filter` expressions in single quotes `\'...\'`.',
     'playlist-curator':
       'You are an expert club & radio DJ set curator inside CrateDig YT. Focus on BPM transitions, energy curves, harmonic compatibility, and how tracks connect across genres for `.m3u`, `.pls`, and `yt-dlp` playlists.',
   };
@@ -288,12 +290,11 @@ export function extractSuggestedTracksFromMarkdown(
     const yearMatch = rawLine.match(/\b(19\d{2}|20\d{2})\b/);
     const year = yearMatch ? Number(yearMatch[1]) : 2024;
 
-    // Extract hashtags if present
+    // Extract hashtags only if present (never invent default tags)
     const tagMatches = Array.from(rawLine.matchAll(/#([a-z0-9-]+)/gi)).map((m) =>
       m[1].toLowerCase()
     );
-    const tags =
-      tagMatches.length > 0 ? tagMatches.slice(0, 4) : ['crate-dig', 'electronic', 'deep-cut'];
+    const tags = tagMatches.slice(0, 4);
 
     const youtubeQuery = encodeURIComponent(`${artist} ${title}`);
     tracks.push({
@@ -341,13 +342,12 @@ export function buildGroundedFallbackResponse(
       '```bash',
       'yt-dlp --ignore-config --no-warnings \\',
       '  --cookies-from-browser firefox \\',
-      '  --match-filter "duration > 90 & duration < 600 & !is_live" \\',
-      '  --reject-title "(?i)(podcast|news|update|interview|reaction|trailer)" \\',
+      "  --match-filter 'duration >= 90 & duration <= 600' \\",
       '  -x --audio-format mp3 --audio-quality 0 \\',
       '  --embed-metadata --embed-thumbnail \\',
       '  --sponsorblock-remove music_offtopic,intro,outro \\',
-      '  -o "%(artist,uploader)s - %(title)s.%(ext)s" \\',
-      `  "ytsearch5:${topArtist} ${topTag}"`,
+      "  -o '%(title)s.%(ext)s' \\",
+      `  'ytsearch5:${topArtist} ${topTag}'`,
       '```',
       '',
       '#### Recommended Test Tracks for Your Queue',

@@ -51,6 +51,7 @@ export default function TrackSearch({
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [copiedTrackId, setCopiedTrackId] = useState<string | null>(null);
   const [savedAllTrackId, setSavedAllTrackId] = useState<string | null>(null);
+  const [customTagInputs, setCustomTagInputs] = useState<Record<string, string>>({});
 
   // Google Search Grounding state (gemini-3.8-flash + googleSearch)
   const [isGroundingSearch, setIsGroundingSearch] = useState<boolean>(false);
@@ -60,6 +61,25 @@ export default function TrackSearch({
     sources: GroundingWebSource[];
     searchQueries: string[];
   } | null>(null);
+
+  const handleAddUserTagToResult = (trackId: string) => {
+    const raw = (customTagInputs[trackId] || '').trim();
+    if (!raw) return;
+    const clean = raw.replace(/^#+/, '').toLowerCase().replace(/\s+/g, '-');
+    if (!clean) return;
+
+    setResults((prev) =>
+      prev.map((t) => {
+        if (t.id !== trackId) return t;
+        const nextTags = t.tags.includes(clean) ? t.tags : [...t.tags, clean];
+        const updated = { ...t, tags: nextTags };
+        if (onAddTrackToCatalog) onAddTrackToCatalog(updated);
+        return updated;
+      })
+    );
+    addFavoriteSignal('tag', clean);
+    setCustomTagInputs((prev) => ({ ...prev, [trackId]: '' }));
+  };
 
   const runTrackLookup = (inputValue: string) => {
     const trimmed = inputValue.trim();
@@ -134,8 +154,10 @@ export default function TrackSearch({
   };
 
   const handleCopyYtDlp = (track: MusicTrack) => {
-    const prefix = cookieFlag ? `yt-dlp ${cookieFlag}` : 'yt-dlp';
-    const cmd = `${prefix} -x --audio-format mp3 --audio-quality 0 --embed-metadata --embed-thumbnail ${track.ytDlpQuery}`;
+    const prefix = cookieFlag
+      ? `yt-dlp --ignore-config --no-warnings ${cookieFlag}`
+      : 'yt-dlp --ignore-config --no-warnings';
+    const cmd = `${prefix} -x --audio-format mp3 --audio-quality 0 --embed-metadata --embed-thumbnail -o '%(title)s.%(ext)s' ${track.ytDlpQuery}`;
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(cmd).catch(() => {});
     }
@@ -157,34 +179,8 @@ export default function TrackSearch({
             <span>TrackSearch — Instant YouTube URL, Song Inspector &amp; Google Search Grounding</span>
           </h2>
           <p className="text-xs text-zinc-400 mt-0.5">
-            Paste any YouTube video URL or enter an <code className="font-mono text-zinc-300">Artist - Song</code> title to fetch track details, or run live Google Search Grounding (<code className="font-mono text-emerald-300">gemini-3.8-flash</code>) for vinyl pressings &amp; label lore.
+            Paste any YouTube video URL or enter an <code className="font-mono text-zinc-300">Artist - Song</code> title to fetch track details and add your own custom <code className="font-mono text-amber-300">#tags</code>, or run live Google Search Grounding (<code className="font-mono text-emerald-300">gemini-3.8-flash</code>).
           </p>
-        </div>
-
-        {/* Quick Sample Buttons */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              const sampleUrl = 'https://www.youtube.com/watch?v=yT0gRc2c2wQ';
-              setQueryInput(sampleUrl);
-              runTrackLookup(sampleUrl);
-            }}
-            className="px-2.5 py-1 text-[11px] bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded-md transition-colors cursor-pointer whitespace-nowrap"
-          >
-            Try URL: Roygbiv
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const sampleSong = 'Burial - Archangel';
-              setQueryInput(sampleSong);
-              runTrackLookup(sampleSong);
-            }}
-            className="px-2.5 py-1 text-[11px] bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded-md transition-colors cursor-pointer whitespace-nowrap"
-          >
-            Try Song: Burial - Archangel
-          </button>
         </div>
       </div>
 
@@ -402,6 +398,34 @@ export default function TrackSearch({
                           </React.Fragment>
                         );
                       })}
+                      <div className="inline-flex items-center gap-1 ml-1">
+                        <input
+                          type="text"
+                          aria-label={`Add custom tag to ${track.title}`}
+                          value={customTagInputs[track.id] || ''}
+                          onChange={(e) =>
+                            setCustomTagInputs((prev) => ({
+                              ...prev,
+                              [track.id]: e.target.value,
+                            }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddUserTagToResult(track.id);
+                            }
+                          }}
+                          placeholder="+ add #tag"
+                          className="w-24 bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-[11px] font-mono text-zinc-200 focus:outline-none focus:border-amber-400"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAddUserTagToResult(track.id)}
+                          className="px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-amber-300 rounded text-[10px] font-mono cursor-pointer"
+                        >
+                          +Tag
+                        </button>
+                      </div>
                     </div>
                   </div>
 

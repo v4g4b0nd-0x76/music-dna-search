@@ -9,10 +9,10 @@ import {
   filterMusicTracks,
   DEFAULT_NON_MUSIC_KEYWORDS,
   buildYtDlpCookieFlag,
-  buildYtDlpMusicMatchFilter,
+  resolveYouTubeFeedTargetUrl,
 } from './taste-engine';
 
-export { filterMusicTracks, DEFAULT_NON_MUSIC_KEYWORDS };
+export { filterMusicTracks, DEFAULT_NON_MUSIC_KEYWORDS, resolveYouTubeFeedTargetUrl };
 
 export interface ParsedCookieEntry {
   domain: string;
@@ -60,7 +60,6 @@ export const DEMO_SESSION_COOKIE_STRING =
 /**
  * Generates a 1-line yt-dlp CLI command that exports a Netscape cookies.txt file
  * directly from the user's logged-in browser without needing any browser extension.
- * Always passes `--ignore-config --no-warnings` so broken ~/.config/yt-dlp/config files never cause FileNotFoundError.
  */
 export function generateCookieExportCliCommand(
   browser: YtDlpCookieBrowser = 'firefox',
@@ -77,49 +76,73 @@ export function generateCookieExportCliCommand(
 }
 
 /**
- * Generates a tested, working 1-step yt-dlp CLI command that reads the user's browser cookies,
- * ignores broken local config files (`--ignore-config --no-warnings`), filters out podcasts/Shorts/long videos
- * (`--match-filter "duration >? 60 & duration <? 600 & !is_live"`), and saves their YouTube music feed to `my-youtube-feed.txt`.
+ * Generates a working yt-dlp CLI command that prints clean `https://www.youtube.com/watch?v=ID - Title` lines
+ * from a YouTube playlist or liked videos using `--flat-playlist` (never prints `NA` for webpage_url or breaks bash with `!is_live`).
  */
 export function generateOneStepFeedDumpCliCommand(config: {
   browser: YtDlpCookieBrowser;
   profile?: string;
-  feedTarget: YouTubeFeedTarget;
+  feedTarget: YouTubeFeedTarget | string;
   feedLimit?: number;
-  musicOnlyFilter?: boolean;
-  strictMusicCategory?: boolean;
-  maxDurationSec?: number;
+  saveToFile?: boolean;
 }): string {
   const browserFlag = buildYtDlpCookieFlag({
     cookieSource: 'browser',
     cookieBrowser: config.browser || 'firefox',
     cookieProfile: config.profile || '',
   });
-  const limit = Math.max(5, Math.min(200, config.feedLimit || 35));
-  const target = config.feedTarget.startsWith('http')
-    ? `"${config.feedTarget}"`
-    : config.feedTarget;
-
-  const matchFilter = buildYtDlpMusicMatchFilter({
-    musicOnlyFilter: config.musicOnlyFilter ?? true,
-    strictMusicCategory: config.strictMusicCategory ?? false,
-    maxDurationSec: config.maxDurationSec || 600,
-  });
+  const limit = Math.max(5, Math.min(200, config.feedLimit || 50));
+  const resolvedUrl = resolveYouTubeFeedTargetUrl(config.feedTarget);
 
   const parts = [
     'yt-dlp',
     '--ignore-config',
     '--no-warnings',
     browserFlag,
-    ...(config.strictMusicCategory ? [] : ['--flat-playlist']),
-    ...(matchFilter ? [matchFilter] : []),
+    '--flat-playlist',
     `--playlist-end ${limit}`,
-    '--print "%(webpage_url)s - %(uploader,channel)s - %(title)s [%(duration_string)s]"',
-    target,
-    '> my-youtube-feed.txt',
+    '--print "https://www.youtube.com/watch?v=%(id)s - %(title)s"',
+    `"${resolvedUrl}"`,
   ];
 
+  if (config.saveToFile) {
+    parts.push('> my-youtube-feed.txt');
+  }
+
   return parts.join(' ');
+}
+
+/**
+ * Generates a direct 1-line yt-dlp command that downloads MP3 audio straight from a YouTube playlist / Liked Music
+ * without requiring any intermediate `.txt` file.
+ */
+export function generateDirectPlaylistAudioCliCommand(config: {
+  browser: YtDlpCookieBrowser;
+  profile?: string;
+  feedTarget: YouTubeFeedTarget | string;
+  feedLimit?: number;
+  audioFormat?: 'mp3' | 'flac' | 'm4a' | 'opus';
+}): string {
+  const browserFlag = buildYtDlpCookieFlag({
+    cookieSource: 'browser',
+    cookieBrowser: config.browser || 'firefox',
+    cookieProfile: config.profile || '',
+  });
+  const limit = Math.max(5, Math.min(200, config.feedLimit || 50));
+  const fmt = config.audioFormat || 'mp3';
+  const resolvedUrl = resolveYouTubeFeedTargetUrl(config.feedTarget);
+
+  return [
+    'yt-dlp',
+    '--ignore-config',
+    '--no-warnings',
+    browserFlag,
+    `--playlist-end ${limit}`,
+    `-x --audio-format ${fmt} --audio-quality 0`,
+    '--embed-metadata --embed-thumbnail',
+    '-o "%(title)s.%(ext)s"',
+    `"${resolvedUrl}"`,
+  ].join(' ');
 }
 
 /**

@@ -206,7 +206,7 @@ export default function PlaylistExporter({
 
   return (
     <section
-      aria-label="Playlist Exporter (.m3u, .pls & yt-dlp .sh)"
+      aria-label="Playlist Exporter (.m3u, .pls, .json & yt-dlp .sh)"
       className="bg-zinc-900/80 border border-zinc-800/90 rounded-xl p-5 space-y-4"
     >
       {/* Header & Format Selector */}
@@ -218,13 +218,14 @@ export default function PlaylistExporter({
               Playlist Exporter
             </span>
             <h3 className="text-base font-display font-semibold text-zinc-100">
-              Export Favorite Tracks to .m3u, .pls, or yt-dlp .sh
+              Export Playlist Metadata to .json, .m3u, .pls, or yt-dlp .sh
             </h3>
           </div>
           <p className="text-xs text-zinc-400 mt-1">
-            Select a set of your favorite or saved tracks and export a standards-compliant{' '}
-            <code className="text-amber-300 font-mono">.m3u</code> or{' '}
-            <code className="text-amber-300 font-mono">.pls</code> playlist file alongside the{' '}
+            Select a set of your favorite or saved tracks and export a structured{' '}
+            <code className="text-amber-300 font-mono">.json</code> metadata file (titles, artists &amp; sonic tags),{' '}
+            <code className="text-amber-300 font-mono">.m3u</code>,{' '}
+            <code className="text-amber-300 font-mono">.pls</code>, or{' '}
             <code className="text-amber-300 font-mono">yt-dlp</code> bash script.
           </p>
         </div>
@@ -233,12 +234,13 @@ export default function PlaylistExporter({
         <div
           role="tablist"
           aria-label="Playlist Export Format"
-          className="inline-flex items-center gap-1 p-1 bg-zinc-950 border border-zinc-800 rounded-xl shrink-0"
+          className="inline-flex items-center gap-1 p-1 bg-zinc-950 border border-zinc-800 rounded-xl shrink-0 flex-wrap"
         >
           {(
             [
               { id: 'm3u', label: '.m3u Playlist', ext: '.m3u', icon: ListMusic },
               { id: 'pls', label: '.pls Playlist', ext: '.pls', icon: FileAudio },
+              { id: 'json', label: '.json Metadata', ext: '.json', icon: FileCode2 },
               { id: 'ytdlp-sh', label: 'yt-dlp .sh Script', ext: '.sh', icon: Terminal },
             ] as const
           ).map((tab) => {
@@ -275,7 +277,7 @@ export default function PlaylistExporter({
             htmlFor="playlist-exporter-title"
             className="block text-[11px] font-medium text-zinc-300"
           >
-            Playlist Title & Filename
+            Playlist Title &amp; Filename
           </label>
           <input
             id="playlist-exporter-title"
@@ -292,7 +294,7 @@ export default function PlaylistExporter({
             htmlFor="playlist-exporter-path-mode"
             className="block text-[11px] font-medium text-zinc-300"
           >
-            Track Entry Format (.m3u / .pls)
+            Track Entry Format (.m3u / .pls / .json)
           </label>
           <select
             id="playlist-exporter-path-mode"
@@ -317,7 +319,7 @@ export default function PlaylistExporter({
               disabled={exportFormat !== 'm3u'}
               className="rounded border-zinc-700 bg-zinc-950 text-amber-400 focus:ring-amber-400"
             />
-            <span>Include Extended #EXTGENRE & #EXTALB tags</span>
+            <span>Include Extended #EXTGENRE &amp; #EXTALB tags</span>
           </label>
         </div>
       </div>
@@ -484,9 +486,9 @@ export default function PlaylistExporter({
             </pre>
           </div>
 
-          {/* Direct 1-Click Download Buttons for .m3u, .pls, and .sh */}
+          {/* Direct 1-Click Download Buttons for .m3u, .pls, .json, and .sh */}
           <div className="space-y-2 pt-1">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <button
                 type="button"
                 onClick={() => triggerDownload('m3u')}
@@ -505,6 +507,16 @@ export default function PlaylistExporter({
               >
                 <Download className="w-3.5 h-3.5" />
                 Download .pls
+              </button>
+
+              <button
+                type="button"
+                onClick={() => triggerDownload('json')}
+                disabled={selectedTracksForExport.length === 0}
+                className="py-2 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-800 disabled:text-zinc-500 text-amber-300 border border-amber-400/40 font-semibold text-xs inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <FileCode2 className="w-3.5 h-3.5" />
+                Download .json
               </button>
 
               <button

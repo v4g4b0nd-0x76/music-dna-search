@@ -4,6 +4,7 @@ import {
   slugifyPlaylistName,
   generateM3uPlaylist,
   generatePlsPlaylist,
+  generateJsonPlaylist,
   buildPlaylistExportPayload,
   getFavoriteMatchedTracks,
 } from './playlist-exporter';
@@ -52,7 +53,28 @@ test('generatePlsPlaylist produces valid PLS v2 playlist entries and footer', ()
   assert.ok(pls.endsWith('Version=2'));
 });
 
-test('buildPlaylistExportPayload returns .m3u, .pls, and yt-dlp .sh payloads with accurate filenames', () => {
+test('generateJsonPlaylist serializes playlist metadata with track titles, artist names, and discovery fields', () => {
+  const sample = CURATED_CATALOG.slice(0, 2);
+  const jsonStr = generateJsonPlaylist(sample, {
+    playlistName: 'Late Night Analog & Breaks',
+    pathMode: 'youtube-url',
+  });
+
+  const parsed = JSON.parse(jsonStr);
+  assert.equal(parsed.playlistName, 'Late Night Analog & Breaks');
+  assert.equal(parsed.slug, 'late-night-analog-breaks');
+  assert.equal(parsed.trackCount, 2);
+  assert.ok(Array.isArray(parsed.tracks));
+  assert.equal(parsed.tracks.length, 2);
+  assert.equal(parsed.tracks[0].title, 'Glue');
+  assert.equal(parsed.tracks[0].artist, 'Bicep');
+  assert.equal(parsed.tracks[0].category, 'Electronic');
+  assert.ok(Array.isArray(parsed.tracks[0].tags));
+  assert.equal(parsed.tracks[1].title, sample[1].title);
+  assert.equal(parsed.tracks[1].artist, sample[1].artist);
+});
+
+test('buildPlaylistExportPayload returns .m3u, .pls, .json, and yt-dlp .sh payloads with accurate filenames', () => {
   const sample = CURATED_CATALOG.slice(0, 2);
 
   const m3uPayload = buildPlaylistExportPayload(sample, {
@@ -72,6 +94,19 @@ test('buildPlaylistExportPayload returns .m3u, .pls, and yt-dlp .sh payloads wit
   assert.equal(plsPayload.extension, 'pls');
   assert.ok(plsPayload.content.includes('[playlist]'));
   assert.ok(plsPayload.content.includes('NumberOfEntries=2'));
+
+  const jsonPayload = buildPlaylistExportPayload(sample, {
+    playlistName: 'Analog Selections',
+    format: 'json',
+  });
+  assert.equal(jsonPayload.filename, 'analog-selections.json');
+  assert.equal(jsonPayload.extension, 'json');
+  assert.equal(jsonPayload.mimeType, 'application/json;charset=utf-8');
+  assert.equal(jsonPayload.trackCount, 2);
+  const parsedJson = JSON.parse(jsonPayload.content);
+  assert.equal(parsedJson.playlistName, 'Analog Selections');
+  assert.equal(parsedJson.tracks[0].artist, 'Bicep');
+  assert.equal(parsedJson.tracks[0].title, 'Glue');
 
   const shPayload = buildPlaylistExportPayload(sample, {
     playlistName: 'Analog Selections',

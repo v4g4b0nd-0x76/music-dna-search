@@ -5,6 +5,9 @@ import {
   YtDlpCookieSource,
   YtDlpCookieBrowser,
   YtDlpFeedCookieConfig,
+  YtDlpMediaMode,
+  YtDlpVideoResolution,
+  YtDlpGuiPresetId,
   AlgorithmMode,
   CURATED_CATALOG,
 } from './music-data';
@@ -96,8 +99,25 @@ export function buildYtDlpCookieFlag(config: {
 }
 
 /**
- * Builds the yt-dlp --match-filter expression to keep songs (60s - maxDurationSec, not live)
- * and exclude Shorts, podcasts, livestreams, and long non-music videos.
+ * Resolves shorthand feed targets (:ytfav, :ythistory, :ytrec) into reliable YouTube URLs
+ */
+export function resolveYouTubeFeedTargetUrl(target: string): string {
+  const trimmed = (target || '').trim();
+  if (trimmed === ':ytfav') {
+    return 'https://www.youtube.com/playlist?list=LL';
+  }
+  if (trimmed === ':ythistory') {
+    return 'https://www.youtube.com/feed/history';
+  }
+  if (trimmed === ':ytrec') {
+    return 'https://www.youtube.com';
+  }
+  return trimmed || 'https://www.youtube.com/playlist?list=LL';
+}
+
+/**
+ * Builds the yt-dlp --match-filter expression to keep songs (60s - maxDurationSec)
+ * without using `!` inside double quotes (which triggers bash/zsh history expansion errors).
  */
 export function buildYtDlpMusicMatchFilter(options?: {
   musicOnlyFilter?: boolean;
@@ -108,7 +128,7 @@ export function buildYtDlpMusicMatchFilter(options?: {
     return '';
   }
   const maxSec = Math.max(180, Math.min(3600, options?.maxDurationSec || 600));
-  const conditions = [`duration >? 60`, `duration <? ${maxSec}`, `!is_live`];
+  const conditions = [`duration >= 60`, `duration <= ${maxSec}`];
   if (options?.strictMusicCategory) {
     conditions.push(`categories *= 'Music'`);
   }
@@ -116,36 +136,33 @@ export function buildYtDlpMusicMatchFilter(options?: {
 }
 
 /**
- * Generates a yt-dlp CLI command that authenticates with the user's cookies to extract or download their personal YouTube feed.
- * Always includes `--ignore-config --no-warnings` so broken ~/.config/yt-dlp/config files never cause FileNotFoundError crashes,
- * and includes `--match-filter` to filter only songs (1–10 mins, no podcasts/streams).
+ * Generates a working yt-dlp CLI command that authenticates with the user's cookies to extract or download their YouTube playlist/feed.
+ * Uses `https://www.youtube.com/watch?v=%(id)s - %(title)s` with `--flat-playlist` so `yt-dlp` never prints `NA` for webpage_url or uploader.
  */
 export function generateYtDlpFeedFetchCommand(config: YtDlpFeedCookieConfig): string {
   const cookieFlag = buildYtDlpCookieFlag(config);
-  const limit = Math.max(5, Math.min(200, config.feedLimit || 35));
-  const target = config.feedTarget.startsWith('http')
-    ? `"${config.feedTarget}"`
-    : config.feedTarget;
+  const limit = Math.max(5, Math.min(200, config.feedLimit || 50));
+  const resolvedUrl = resolveYouTubeFeedTargetUrl(config.feedTarget);
+  const target = `"${resolvedUrl}"`;
 
   const baseParts = ['yt-dlp', '--ignore-config', '--no-warnings'];
   if (cookieFlag) {
     baseParts.push(cookieFlag);
   }
 
-  const matchFilterFlag = buildYtDlpMusicMatchFilter({
-    musicOnlyFilter: config.musicOnlyFilter ?? true,
-    strictMusicCategory: config.strictMusicCategory ?? false,
-    maxDurationSec: config.maxDurationSec || 600,
-  });
-
   if (config.outputMode === 'direct-audio') {
+    const matchFilterFlag = buildYtDlpMusicMatchFilter({
+      musicOnlyFilter: config.musicOnlyFilter ?? false,
+      strictMusicCategory: config.strictMusicCategory ?? false,
+      maxDurationSec: config.maxDurationSec || 600,
+    });
     return [
       ...baseParts,
       ...(matchFilterFlag ? [matchFilterFlag] : []),
       `--playlist-end ${limit}`,
       '-x --audio-format mp3 --audio-quality 0',
       '--embed-metadata --embed-thumbnail',
-      '-o "%(artist,uploader)s - %(title)s.%(ext)s"',
+      '-o "%(title)s.%(ext)s"',
       target,
     ].join(' ');
   }
@@ -154,7 +171,6 @@ export function generateYtDlpFeedFetchCommand(config: YtDlpFeedCookieConfig): st
     return [
       ...baseParts,
       '--flat-playlist',
-      ...(matchFilterFlag ? [matchFilterFlag] : []),
       `--playlist-end ${limit}`,
       '--dump-json',
       target,
@@ -164,10 +180,9 @@ export function generateYtDlpFeedFetchCommand(config: YtDlpFeedCookieConfig): st
 
   const printParts = [
     ...baseParts,
-    ...(config.strictMusicCategory ? [] : ['--flat-playlist']),
-    ...(matchFilterFlag ? [matchFilterFlag] : []),
+    '--flat-playlist',
     `--playlist-end ${limit}`,
-    '--print "%(webpage_url)s - %(uploader,channel)s - %(title)s"',
+    '--print "https://www.youtube.com/watch?v=%(id)s - %(title)s"',
     target,
   ];
 
@@ -291,65 +306,32 @@ export function checkNonMusicOrPodcast(params: {
 }
 
 /**
- * Infers genre tags and category from artist/title/bracket annotations
+ * Extracts explicit user-provided bracket tags `[tag1 / tag2]` without inventing default tags.
  */
 export function inferMetadataFromText(artist: string, title: string, bracketHint?: string): {
   tags: string[];
   category: string;
 } {
-  const combined = `${artist} ${title} ${bracketHint || ''}`.toLowerCase();
-  const matchedCatalog = CURATED_CATALOG.find(
-    (t) =>
-      t.artist.toLowerCase() === artist.toLowerCase() ||
-      combined.includes(t.artist.toLowerCase())
-  );
-
-  if (matchedCatalog) {
-    return {
-      tags: [...matchedCatalog.tags],
-      category: matchedCatalog.category,
-    };
-  }
-
   const tags: string[] = [];
-  let category = 'Electronic';
-
-  if (combined.includes('funk') || combined.includes('soul') || combined.includes('groove')) {
-    tags.push('psychedelic-funk', 'groovy', 'warm-analog');
-    category = 'Indie & Funk';
-  }
-  if (combined.includes('synth') || combined.includes('chill') || combined.includes('wave')) {
-    tags.push('synthwave', 'chillwave', 'analog-synth');
-    category = 'Synthwave & Chill';
-  }
-  if (combined.includes('psych') || combined.includes('rock') || combined.includes('impala')) {
-    tags.push('psychedelic-pop', 'hypnotic');
-    category = 'Psychedelic Rock';
-  }
-  if (combined.includes('jazz') || combined.includes('downtempo') || combined.includes('lofi')) {
-    tags.push('downtempo', 'nu-jazz');
-    category = 'Downtempo & Jazz';
-  }
-  if (combined.includes('break') || combined.includes('garage') || combined.includes('idm') || combined.includes('electronic')) {
-    tags.push('breakbeat', 'melodic-electronic');
-    category = 'Electronic';
-  }
+  let category = 'Uncategorized';
 
   if (bracketHint) {
-    const parts = bracketHint
+    const rawParts = bracketHint
       .split(/[/,|]/)
-      .map((s) => s.trim().toLowerCase().replace(/\s+/g, '-'))
-      .filter((s) => Boolean(s) && !/^\d+:\d+$/.test(s));
-    for (const p of parts) {
-      if (!tags.includes(p)) tags.push(p);
+      .map((s) => s.trim())
+      .filter((s) => Boolean(s) && !/^\d+:\d+$/.test(s) && s.toUpperCase() !== 'NA');
+    if (rawParts.length > 0) {
+      category = rawParts[0];
+    }
+    for (const p of rawParts) {
+      const normalized = p.toLowerCase().replace(/\s+/g, '-');
+      if (normalized && !tags.includes(normalized)) {
+        tags.push(normalized);
+      }
     }
   }
 
-  if (tags.length === 0) {
-    tags.push('melodic-electronic', 'indie-discovery');
-  }
-
-  return { tags: tags.slice(0, 4), category };
+  return { tags, category };
 }
 
 /**
@@ -460,10 +442,11 @@ export function parseYouTubeFeedInputWithReport(
         durationOverride = parseDurationTokenToSeconds(parenDurMatch[1]);
       }
 
-      // Strip URL, bracket hints, and common YouTube video suffixes to find "Artist - Title"
+      // Strip URL, bracket hints, literal NA placeholders from yt-dlp, and common YouTube video suffixes to find "Artist - Title"
       const cleanText = line
         .replace(/https?:\/\/[^\s]+/g, '')
         .replace(/\[[^\]]*\]/g, '')
+        .replace(/\bNA\b\s*[-–—]\s*/g, '')
         .replace(/\(((?:\d{1,2}:)?\d{1,2}:\d{2})\)\s*$/g, '')
         .replace(/\((?:Official|Music|Video|Audio|HD|4K|Lyrics|Visualizer)[^)]*\)/gi, '')
         .replace(/\s+-\s+Topic(?=\s+[-–—]|\s*$)/gi, '')
@@ -771,11 +754,219 @@ export function rankTracksByTaste(
  * Generates a single-track or multi-track yt-dlp command / script.
  * Includes `--ignore-config --no-warnings` and optional song duration filter so it works reliably on any setup.
  */
+export interface YtDlpGuiPreset {
+  id: YtDlpGuiPresetId;
+  label: string;
+  category: YtDlpMediaMode;
+  badge: string;
+  description: string;
+  options: Partial<YtDlpOptions>;
+}
+
+export const YT_DLP_GUI_PRESETS: readonly YtDlpGuiPreset[] = [
+  {
+    id: 'audio-best-mp3',
+    label: 'Audio Only · Best MP3 (320K / V0)',
+    category: 'audio',
+    badge: '-x --audio-format mp3 --audio-quality 0',
+    description: 'Extracts highest-quality MP3 audio with embedded cover art, ID3 metadata, and SponsorBlock trim.',
+    options: {
+      format: 'mp3',
+      audioQuality: '0',
+      embedMetadata: true,
+      embedThumbnail: true,
+      sponsorBlock: true,
+    },
+  },
+  {
+    id: 'audio-lossless-flac',
+    label: 'Audio Only · Lossless FLAC',
+    category: 'audio',
+    badge: '-x --audio-format flac --audio-quality 0',
+    description: 'Extracts archival FLAC audio stream with full metadata tags and album artwork.',
+    options: {
+      format: 'flac',
+      audioQuality: '0',
+      embedMetadata: true,
+      embedThumbnail: true,
+      sponsorBlock: true,
+    },
+  },
+  {
+    id: 'audio-compact-opus',
+    label: 'Audio Only · Compact Opus (192K)',
+    category: 'audio',
+    badge: '-x --audio-format opus --audio-quality 192K',
+    description: 'Fast, lightweight Opus audio extraction ideal for mobile crates and portable players.',
+    options: {
+      format: 'opus',
+      audioQuality: '192K',
+      embedMetadata: true,
+      embedThumbnail: false,
+      sponsorBlock: true,
+    },
+  },
+  {
+    id: 'video-1080p-mp4',
+    label: 'Video + Audio · 1080p Full HD MP4',
+    category: 'video',
+    badge: 'height<=1080 · mp4 + m4a',
+    description: 'Downloads 1080p MP4 video merged with best M4A audio for music videos and live sets.',
+    options: {
+      format: 'mp4-video',
+      videoResolution: '1080',
+      embedMetadata: true,
+      embedThumbnail: false,
+      sponsorBlock: false,
+    },
+  },
+  {
+    id: 'video-4k-best',
+    label: 'Video + Audio · Max 4K / Best Quality',
+    category: 'video',
+    badge: 'bestvideo + bestaudio · 4K/UHD',
+    description: 'Downloads maximum available video resolution (up to 4K/2160p) with best audio stream.',
+    options: {
+      format: 'mp4-video',
+      videoResolution: 'best',
+      embedMetadata: true,
+      embedThumbnail: false,
+      sponsorBlock: false,
+    },
+  },
+  {
+    id: 'video-720p-fast',
+    label: 'Video + Audio · 720p HD Fast Save',
+    category: 'video',
+    badge: 'height<=720 · compact mp4',
+    description: 'Downloads compact 720p HD MP4 video for quick offline reference and DJ visual sets.',
+    options: {
+      format: 'mp4-video',
+      videoResolution: '720',
+      embedMetadata: false,
+      embedThumbnail: false,
+      sponsorBlock: false,
+    },
+  },
+];
+
+/**
+ * Applies a named GUI preset (audio-only or video + quality profile) onto an existing YtDlpOptions state.
+ */
+export function applyYtDlpGuiPreset(
+  current: YtDlpOptions,
+  presetId: YtDlpGuiPresetId
+): YtDlpOptions {
+  const preset = YT_DLP_GUI_PRESETS.find((p) => p.id === presetId);
+  if (!preset) return current;
+  return {
+    ...current,
+    ...preset.options,
+  };
+}
+
+export interface YtDlpActiveFlagChip {
+  flag: string;
+  label: string;
+  category: 'mode' | 'quality' | 'post' | 'auth' | 'output';
+}
+
+/**
+ * Summarizes the active CLI arguments constructed by the GUI into human-readable flag chips.
+ */
+export function summarizeYtDlpActiveFlags(options: YtDlpOptions): YtDlpActiveFlagChip[] {
+  const chips: YtDlpActiveFlagChip[] = [];
+  const isVideo = options.format === 'mp4-video' || options.format === 'mkv-video';
+
+  if (isVideo) {
+    const res = options.videoResolution || 'best';
+    const container = options.format === 'mkv-video' ? 'mkv' : 'mp4';
+    chips.push({
+      flag: `-f "...${res !== 'best' ? `[height<=${res}]` : ''}" --merge-output-format ${container}`,
+      label: `Video Mode (${container.toUpperCase()})`,
+      category: 'mode',
+    });
+    chips.push({
+      flag: res === 'best' ? 'bestvideo+bestaudio' : `height<=${res}p`,
+      label: res === 'best' ? 'Max Resolution (Best / 4K)' : `Max ${res}p Video Quality`,
+      category: 'quality',
+    });
+  } else {
+    chips.push({
+      flag: `-x --audio-format ${options.format}`,
+      label: `Audio-Only (${options.format.toUpperCase()})`,
+      category: 'mode',
+    });
+    chips.push({
+      flag: `--audio-quality ${options.audioQuality}`,
+      label:
+        options.audioQuality === '0'
+          ? 'Best VBR Quality (0)'
+          : options.audioQuality === '5'
+          ? 'Standard VBR Quality (5)'
+          : `Target Bitrate (${options.audioQuality})`,
+      category: 'quality',
+    });
+  }
+
+  const cookieFlag = buildYtDlpCookieFlag(options);
+  if (cookieFlag) {
+    chips.push({
+      flag: cookieFlag,
+      label: 'Cookie Auth',
+      category: 'auth',
+    });
+  }
+
+  if (options.embedMetadata) {
+    chips.push({
+      flag: '--embed-metadata',
+      label: 'ID3 Metadata',
+      category: 'post',
+    });
+  }
+  if (options.embedThumbnail && !isVideo) {
+    chips.push({
+      flag: '--embed-thumbnail',
+      label: 'Album Art Thumbnail',
+      category: 'post',
+    });
+  }
+  if (options.sponsorBlock) {
+    chips.push({
+      flag: '--sponsorblock-remove music_offtopic,intro,outro',
+      label: 'SponsorBlock Trim',
+      category: 'post',
+    });
+  }
+  if (options.addSubtitles) {
+    chips.push({
+      flag: '--write-auto-subs --sub-lang en',
+      label: 'Auto Subtitles',
+      category: 'post',
+    });
+  }
+
+  const outTpl = options.outputTemplate.trim() || '%(title)s.%(ext)s';
+  chips.push({
+    flag: `-o "${outTpl}"`,
+    label: 'Output Filename Template',
+    category: 'output',
+  });
+
+  return chips;
+}
+
+/**
+ * Generates a single-track or multi-track yt-dlp command / script.
+ * Includes `--ignore-config --no-warnings` and supports audio-only vs video modes and quality toggles.
+ */
 export function generateYtDlpCommand(
   tracks: MusicTrack[],
   options: YtDlpOptions
 ): string {
-  if (tracks.length === 0) {
+  const customTarget = (options.customTargetUrl || '').trim();
+  if (tracks.length === 0 && !customTarget) {
     return '# Add tracks to your playlist or select a track to generate yt-dlp commands';
   }
 
@@ -785,18 +976,26 @@ export function generateYtDlpCommand(
     flags.push(cookieFlag);
   }
 
-  if (options.musicOnlyFilter !== false) {
-    const matchFilter = buildYtDlpMusicMatchFilter({
-      musicOnlyFilter: true,
-      maxDurationSec: options.maxDurationSec || 600,
-    });
-    if (matchFilter) {
-      flags.push(matchFilter);
+  const isVideo = options.format === 'mp4-video' || options.format === 'mkv-video';
+  if (isVideo) {
+    const res = options.videoResolution || 'best';
+    if (options.format === 'mkv-video') {
+      if (res !== 'best') {
+        flags.push(
+          `-f "bestvideo[height<=${res}]+bestaudio/best[height<=${res}]/best" --merge-output-format mkv`
+        );
+      } else {
+        flags.push('-f "bestvideo+bestaudio/best" --merge-output-format mkv');
+      }
+    } else {
+      if (res !== 'best') {
+        flags.push(
+          `-f "bestvideo[height<=${res}][ext=mp4]+bestaudio[ext=m4a]/best[height<=${res}][ext=mp4]/best" --merge-output-format mp4`
+        );
+      } else {
+        flags.push('-f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"');
+      }
     }
-  }
-
-  if (options.format === 'mp4-video') {
-    flags.push('-f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"');
   } else {
     flags.push('-x');
     flags.push(`--audio-format ${options.format}`);
@@ -806,7 +1005,7 @@ export function generateYtDlpCommand(
   if (options.embedMetadata) {
     flags.push('--embed-metadata');
   }
-  if (options.embedThumbnail && options.format !== 'mp4-video') {
+  if (options.embedThumbnail && !isVideo) {
     flags.push('--embed-thumbnail');
   }
   if (options.addSubtitles) {
@@ -816,10 +1015,18 @@ export function generateYtDlpCommand(
     flags.push('--sponsorblock-remove music_offtopic,intro,outro');
   }
 
-  const outTpl = options.outputTemplate.trim() || '%(artist,uploader)s - %(title)s.%(ext)s';
+  const outTpl = options.outputTemplate.trim() || '%(title)s.%(ext)s';
   flags.push(`-o "${outTpl}"`);
 
   const baseCmd = flags.join(' ');
+
+  if (customTarget) {
+    const formattedTarget =
+      customTarget.startsWith('http') || customTarget.startsWith('ytsearch')
+        ? `"${customTarget.replace(/^"+|"+$/g, '')}"`
+        : `ytsearch1:"${customTarget.replace(/^"+|"+$/g, '')}"`;
+    return `${baseCmd} ${formattedTarget}`;
+  }
 
   if (tracks.length === 1) {
     const t = tracks[0];

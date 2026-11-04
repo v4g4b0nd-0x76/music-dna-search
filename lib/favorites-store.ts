@@ -13,7 +13,14 @@ export type FavoritesAction =
   | { type: 'TOGGLE_CATEGORY'; category: string }
   | { type: 'ADD_SIGNAL'; signalType: FavoriteSignalType; value: string }
   | { type: 'REMOVE_SIGNAL'; signalType: FavoriteSignalType; value: string }
-  | { type: 'RESET_DEFAULT' };
+  | { type: 'RESET_DEFAULT' }
+  | { type: 'CLEAR_ALL' };
+
+export const EMPTY_FAVORITES_STATE: FavoritesState = {
+  favoriteArtists: [],
+  favoriteTags: [],
+  favoriteCategories: [],
+};
 
 export const DEFAULT_FAVORITES_STATE: FavoritesState = {
   favoriteArtists: ['Bicep', 'Khruangbin', 'Overmono'],
@@ -155,6 +162,9 @@ export function favoritesReducer(
 
     case 'RESET_DEFAULT':
       return DEFAULT_FAVORITES_STATE;
+
+    case 'CLEAR_ALL':
+      return EMPTY_FAVORITES_STATE;
 
     default:
       return state;

@@ -12,16 +12,16 @@ import React, {
 import {
   FavoritesState,
   FavoriteSignalType,
-  DEFAULT_FAVORITES_STATE,
+  EMPTY_FAVORITES_STATE,
   favoritesReducer,
   serializeFavoritesState,
   deserializeFavoritesState,
   normalizeTagValue,
 } from '@/lib/favorites-store';
 
-export const FAVORITES_SESSION_KEY = 'cratedig_favorites_session_v1';
-export const FAVORITES_LOCAL_KEY = 'cratedig_favorites_local_v1';
-export const LEGACY_STORAGE_KEY = 'cratedig_yt_state_v1';
+export const FAVORITES_SESSION_KEY = 'cratedig_favorites_session_v2';
+export const FAVORITES_LOCAL_KEY = 'cratedig_favorites_local_v2';
+export const LEGACY_STORAGE_KEY = 'cratedig_yt_state_v2';
 
 export interface FavoritesContextValue extends FavoritesState {
   isHydrated: boolean;
@@ -40,7 +40,7 @@ export interface FavoritesContextValue extends FavoritesState {
 const FavoritesContext = createContext<FavoritesContextValue | undefined>(undefined);
 
 export function FavoritesProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(favoritesReducer, DEFAULT_FAVORITES_STATE);
+  const [state, dispatch] = useReducer(favoritesReducer, EMPTY_FAVORITES_STATE);
   const [isHydrated, setIsHydrated] = useState(false);
 
   // Hydrate on mount from sessionStorage first (session persistence), falling back to localStorage
@@ -120,7 +120,7 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const resetFavoritesToDefault = useCallback(() => {
-    dispatch({ type: 'RESET_DEFAULT' });
+    dispatch({ type: 'CLEAR_ALL' });
   }, []);
 
   const isArtistFavorite = useCallback(

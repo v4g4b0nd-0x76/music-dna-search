@@ -6,6 +6,7 @@ import {
   fetchAuthenticatedYouTubeMusicFeed,
   generateCookieExportCliCommand,
   generateOneStepFeedDumpCliCommand,
+  generateDirectPlaylistAudioCliCommand,
   DEMO_NETSCAPE_COOKIES_TXT,
   DEMO_SESSION_COOKIE_STRING,
 } from './youtube-feed-importer';
@@ -54,7 +55,7 @@ test('fetchAuthenticatedYouTubeMusicFeed returns parsed music tracks when sessio
   assert.equal(tracks[5].artist, 'Boards of Canada');
 });
 
-test('generateCookieExportCliCommand and generateOneStepFeedDumpCliCommand include --ignore-config --no-warnings and song filter', () => {
+test('generateCookieExportCliCommand, generateOneStepFeedDumpCliCommand, and generateDirectPlaylistAudioCliCommand build valid yt-dlp commands', () => {
   const exportCmd = generateCookieExportCliCommand('firefox', '', './cookies.txt');
   assert.ok(exportCmd.startsWith('yt-dlp --ignore-config --no-warnings --cookies-from-browser firefox'));
   assert.ok(exportCmd.includes('--cookies "./cookies.txt"'));
@@ -64,10 +65,18 @@ test('generateCookieExportCliCommand and generateOneStepFeedDumpCliCommand inclu
     browser: 'firefox',
     feedTarget: ':ytfav',
     feedLimit: 35,
-    musicOnlyFilter: true,
-    maxDurationSec: 600,
+    saveToFile: true,
   });
   assert.ok(dumpCmd.startsWith('yt-dlp --ignore-config --no-warnings --cookies-from-browser firefox --flat-playlist'));
-  assert.ok(dumpCmd.includes('--match-filter "duration >? 60 & duration <? 600 & !is_live"'));
-  assert.ok(dumpCmd.includes(':ytfav > my-youtube-feed.txt'));
+  assert.ok(dumpCmd.includes('--print "https://www.youtube.com/watch?v=%(id)s - %(title)s"'));
+  assert.ok(dumpCmd.includes('"https://www.youtube.com/playlist?list=LL" > my-youtube-feed.txt'));
+
+  const directAudioCmd = generateDirectPlaylistAudioCliCommand({
+    browser: 'firefox',
+    feedTarget: 'https://music.youtube.com/playlist?list=LM',
+    feedLimit: 25,
+    audioFormat: 'mp3',
+  });
+  assert.ok(directAudioCmd.includes('-x --audio-format mp3 --audio-quality 0'));
+  assert.ok(directAudioCmd.includes('"https://music.youtube.com/playlist?list=LM"'));
 });

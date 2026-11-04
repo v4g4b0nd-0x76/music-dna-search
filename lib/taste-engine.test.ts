@@ -17,6 +17,8 @@ import {
   applyBulkTrackEdits,
   computeBulkTrackOverrides,
   applyTrackOverridesToPool,
+  applyYtDlpGuiPreset,
+  summarizeYtDlpActiveFlags,
 } from './taste-engine';
 import {
   CURATED_CATALOG,
@@ -148,9 +150,9 @@ test('buildYtDlpCookieFlag and generateYtDlpFeedFetchCommand include --ignore-co
       'yt-dlp --ignore-config --no-warnings --cookies-from-browser firefox --flat-playlist'
     )
   );
-  assert.ok(feedCmd.includes('--match-filter "duration >? 60 & duration <? 600 & !is_live"'));
   assert.ok(feedCmd.includes('--playlist-end 35'));
-  assert.ok(feedCmd.endsWith(':ytfav > my-youtube-feed.txt'));
+  assert.ok(feedCmd.includes('--print "https://www.youtube.com/watch?v=%(id)s - %(title)s"'));
+  assert.ok(feedCmd.endsWith('"https://www.youtube.com/playlist?list=LL" > my-youtube-feed.txt'));
 });
 
 test('buildTasteProfile aggregates artists, tags, and categories with favorites boost', () => {
@@ -301,4 +303,46 @@ test('applyBulkTrackEdits supports replace and remove tag modes and computeBulkT
   assert.ok(hydratedPool[0].tags.includes('vinyl-rip'));
   assert.ok(hydratedPool[1].tags.includes('deep-cut'));
 });
+
+test('applyYtDlpGuiPreset and generateYtDlpCommand construct audio-only vs video presets with quality toggles', () => {
+  const sampleTrack = CURATED_CATALOG[0];
+  const baseOptions = {
+    format: 'mp3' as const,
+    audioQuality: '0' as const,
+    embedThumbnail: true,
+    embedMetadata: true,
+    addSubtitles: false,
+    sponsorBlock: true,
+    outputTemplate: '%(title)s.%(ext)s',
+    useSearchFallback: false,
+    batchFileMode: false,
+    cookieSource: 'browser' as const,
+    cookieBrowser: 'firefox' as const,
+  };
+
+  // Apply 1080p video preset
+  const video1080Options = applyYtDlpGuiPreset(baseOptions, 'video-1080p-mp4');
+  assert.equal(video1080Options.format, 'mp4-video');
+  assert.equal(video1080Options.videoResolution, '1080');
+
+  const videoCmd = generateYtDlpCommand([sampleTrack], video1080Options);
+  assert.ok(
+    videoCmd.includes(
+      '-f "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best" --merge-output-format mp4'
+    )
+  );
+  assert.ok(!videoCmd.includes('--embed-thumbnail'));
+
+  // Apply compact opus audio preset
+  const opusOptions = applyYtDlpGuiPreset(video1080Options, 'audio-compact-opus');
+  assert.equal(opusOptions.format, 'opus');
+  assert.equal(opusOptions.audioQuality, '192K');
+  const opusCmd = generateYtDlpCommand([sampleTrack], opusOptions);
+  assert.ok(opusCmd.includes('-x --audio-format opus --audio-quality 192K'));
+
+  const chips = summarizeYtDlpActiveFlags(opusOptions);
+  assert.ok(chips.some((c) => c.flag.includes('--audio-format opus')));
+  assert.ok(chips.some((c) => c.flag.includes('--audio-quality 192K')));
+});
+
 

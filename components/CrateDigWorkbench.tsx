@@ -28,6 +28,8 @@ import {
   Compass,
   Settings,
   ArrowLeft,
+  Video,
+  Headphones,
 } from 'lucide-react';
 import {
   MusicTrack,
@@ -35,6 +37,8 @@ import {
   YtDlpOptions,
   YtDlpCookieSource,
   YtDlpCookieBrowser,
+  YtDlpVideoResolution,
+  YtDlpGuiPresetId,
   AlgorithmMode,
   CURATED_CATALOG,
   SEED_YOUTUBE_FEED_SAMPLE,
@@ -53,6 +57,9 @@ import {
   applyTrackOverridesToPool,
   TrackMetadataOverride,
   BulkTagOperationMode,
+  YT_DLP_GUI_PRESETS,
+  applyYtDlpGuiPreset,
+  summarizeYtDlpActiveFlags,
 } from '@/lib/taste-engine';
 import {
   searchItunesCatalog,
@@ -65,9 +72,13 @@ import TasteAnalytics from '@/components/TasteAnalytics';
 import GitHubPagesDeployer from '@/components/GitHubPagesDeployer';
 import PlaylistExporter from '@/components/PlaylistExporter';
 import GeminiCrateChatbot from '@/components/GeminiCrateChatbot';
-import { generatePlsPlaylist } from '@/lib/playlist-exporter';
+import TasteRegressionLab from '@/components/TasteRegressionLab';
+import {
+  generatePlsPlaylist,
+  buildPlaylistExportPayload,
+} from '@/lib/playlist-exporter';
 
-const STORAGE_KEY = 'cratedig_yt_state_v1';
+const STORAGE_KEY = 'cratedig_yt_state_v2';
 
 export type PipelineStepId = 'cookies' | 'feed' | 'search' | 'assistant' | 'export';
 
@@ -86,45 +97,45 @@ const PIPELINE_STEPS: PipelineStepMeta[] = [
   {
     id: 'cookies',
     stepNumber: '01',
-    title: '1. Connect Cookies',
-    shortTitle: 'Connect Cookies',
-    guideTitle: 'Step 01 · Connect Your Browser Cookies (or Use Demo Feed)',
+    title: '1. YouTube & yt-dlp Setup',
+    shortTitle: 'yt-dlp Setup',
+    guideTitle: 'Step 01 · Zsh/Bash-Safe yt-dlp Commands & Direct YouTube Import',
     guideDescription:
-      'Pick your web browser to get a 1-line yt-dlp command that exports your YouTube liked songs, upload an existing file, or click "Load Instant Demo Feed" to skip terminal setup.',
-    whatYouNeed: 'Required Data: Choose Browser (Firefox/Chrome) or click Demo Feed',
-    nextLabel: 'Next: Filter Feed Songs',
+      'Pick your browser to copy a zsh-safe yt-dlp command (or direct MP3 download command), or paste YouTube links / song titles directly without needing a .txt file.',
+    whatYouNeed: 'Input: Pick Browser or Paste YouTube Links / Songs Directly',
+    nextLabel: 'Next: Add & Filter Songs',
   },
   {
     id: 'feed',
     stepNumber: '02',
-    title: '2. Filter Feed Songs',
-    shortTitle: 'Filter Feed',
-    guideTitle: 'Step 02 · Paste & Filter Your YouTube Music Feed',
+    title: '2. Add & Filter Songs',
+    shortTitle: 'Add & Filter',
+    guideTitle: 'Step 02 · Add Your Songs or Filter Pasted YouTube Lines',
     guideDescription:
-      'Review your imported YouTube lines and run filterMusicTracks to automatically strip out podcasts, news, and non-music videos before building your Taste DNA.',
-    whatYouNeed: 'Required Data: Raw YouTube URLs / titles (or 1-click genre preset)',
+      'Add individual songs with your own custom #tags, or paste raw yt-dlp output and run filterMusicTracks to strip out podcasts, news, and updates.',
+    whatYouNeed: 'Input: Add Artist - Song + Your Own #Tags (Zero Default Tags)',
     nextLabel: 'Next: Search Music & Taste DNA',
   },
   {
     id: 'search',
     stepNumber: '03',
     title: '3. Search Music & DNA',
-    shortTitle: 'Search Music',
-    guideTitle: 'Step 03 · Search Songs, Inspect URLs & Pick Favorite Artists/Tags',
+    shortTitle: 'Search & DNA',
+    guideTitle: 'Step 03 · Inspect Songs, Add Custom #Tags & Build Taste DNA',
     guideDescription:
-      'Search any Artist - Song or YouTube URL, run live Google Search Grounding for vinyl & label details, and click ★ on artists or #tags to customize your Taste DNA.',
-    whatYouNeed: 'Required Data: Search any song/artist or add Favorite Artists & #Tags',
-    nextLabel: 'Next: Ask Gemini Crate AI',
+      'Search any Artist - Song or YouTube URL, run Google Search Grounding, and add your own custom Favorite Artists, #Tags, and Categories.',
+    whatYouNeed: 'Input: Only User-Added Artists, #Tags & Categories',
+    nextLabel: 'Next: Regression & Prompt Lab',
   },
   {
     id: 'assistant',
     stepNumber: '04',
-    title: '4. Gemini Crate AI',
-    shortTitle: 'Gemini AI',
-    guideTitle: 'Step 04 · Ask Gemini Crate AI & Google Search Grounding',
+    title: '4. Regression & Prompt Lab',
+    shortTitle: 'Regression AI',
+    guideTitle: 'Step 04 · Taste Regression Training & Gemini Prompt Engineering System',
     guideDescription:
-      'Click any of the 3 worked examples below or ask Gemini to recommend deep cuts via Google Search, write custom yt-dlp scripts, or sequence BPM transitions.',
-    whatYouNeed: 'Optional: Click a worked example card or ask a custom question',
+      'Feed sample songs with target ratings (y = 0..10) and your own #tags to fit a Ridge Regression model (β weights) and engineer custom Gemini YouTube discovery prompts.',
+    whatYouNeed: 'System: OLS/Ridge Taste Regression + Custom Gemini YouTube Prompts',
     nextLabel: 'Next: Ranked Crate & Export',
   },
   {
@@ -134,8 +145,8 @@ const PIPELINE_STEPS: PipelineStepMeta[] = [
     shortTitle: 'Crate & Export',
     guideTitle: 'Step 05 · Ranked Music Crate, Bulk Tag Editor & Playlist Export',
     guideDescription:
-      'Browse your Taste-Ranked recommendations, bulk-edit tags on saved tracks, view Taste Analytics charts, and download .m3u, .pls, or yt-dlp .sh scripts.',
-    whatYouNeed: 'Output: Downloadable .m3u, .pls, or yt-dlp .sh batch script',
+      'Browse your Taste-Ranked recommendations, bulk-edit tags on saved tracks, view Taste Analytics charts, and export .json metadata, .m3u, .pls, or yt-dlp .sh scripts.',
+    whatYouNeed: 'Output: Downloadable .json, .m3u, .pls, or yt-dlp .sh batch script',
   },
 ];
 
@@ -163,15 +174,26 @@ export default function CrateDigWorkbench() {
   // Active Pipeline Stage (Steps 01 -> 05)
   const [activeStep, setActiveStep] = useState<PipelineStepId>('cookies');
 
-  // Sub-tabs inside Step 05 (Crate & Export) so only one clean view is displayed at a time
-  const [exportSubTab, setExportSubTab] = useState<'ranked' | 'saved' | 'exporter' | 'analytics'>('ranked');
+  // Sub-tabs inside Step 04 (Regression Prompt Lab vs Conversational Chat)
+  const [aiLabMode, setAiLabMode] = useState<'regression' | 'chat'>('regression');
 
-  // YouTube Feed Input State
-  const [feedText, setFeedText] = useState<string>(SEED_YOUTUBE_FEED_SAMPLE);
-  const [feedTracks, setFeedTracks] = useState<MusicTrack[]>(() =>
-    parseYouTubeFeedInput(SEED_YOUTUBE_FEED_SAMPLE)
-  );
+  // Sub-tabs inside Step 05 (Crate & Export) so only one clean view is displayed at a time
+  const [exportSubTab, setExportSubTab] = useState<'ranked' | 'saved' | 'exporter' | 'ytdlp-gui' | 'analytics'>('ranked');
+
+  // Active preset tracker for the GUI yt-dlp Command Builder
+  const [activeYtDlpPreset, setActiveYtDlpPreset] = useState<YtDlpGuiPresetId>('audio-best-mp3');
+  const [guiCommandScope, setGuiCommandScope] = useState<'crate' | 'single' | 'custom'>('single');
+
+  // YouTube Feed Input State (Starts clean — no pre-filled default feed suggestions)
+  const [feedText, setFeedText] = useState<string>('');
+  const [feedTracks, setFeedTracks] = useState<MusicTrack[]>([]);
   const [customCatalogTracks, setCustomCatalogTracks] = useState<MusicTrack[]>([]);
+
+  // Quick manual song adder state in Step 02
+  const [manualArtist, setManualArtist] = useState<string>('');
+  const [manualTitle, setManualTitle] = useState<string>('');
+  const [manualUrl, setManualUrl] = useState<string>('');
+  const [manualTags, setManualTags] = useState<string>('');
 
   // Favorites State via React Context
   const {
@@ -207,11 +229,12 @@ export default function CrateDigWorkbench() {
   const [ytDlpOptions, setYtDlpOptions] = useState<YtDlpOptions>({
     format: 'mp3',
     audioQuality: '0',
+    videoResolution: '1080',
     embedThumbnail: true,
     embedMetadata: true,
     addSubtitles: false,
     sponsorBlock: true,
-    outputTemplate: '%(artist,uploader)s - %(title)s.%(ext)s',
+    outputTemplate: '%(title)s.%(ext)s',
     useSearchFallback: false,
     batchFileMode: true,
     cookieSource: 'browser',
@@ -220,6 +243,7 @@ export default function CrateDigWorkbench() {
     cookieFilePath: './cookies.txt',
     musicOnlyFilter: true,
     maxDurationSec: 600,
+    customTargetUrl: '',
   });
 
   const activeCookieFlag = useMemo(
@@ -378,24 +402,27 @@ export default function CrateDigWorkbench() {
     setFeedTracks(filtered.tracks);
   };
 
-  const handleLoadPresetFeed = (preset: 'electronic' | 'psych' | 'synth') => {
-    if (preset === 'electronic') {
-      setFeedText(SEED_YOUTUBE_FEED_SAMPLE);
-      setFeedTracks(parseYouTubeFeedInput(SEED_YOUTUBE_FEED_SAMPLE));
-    } else if (preset === 'psych') {
-      const sample = `https://www.youtube.com/watch?v=2Y6Nne8RvaA - Khruangbin - Time (You and I) [Psychedelic Funk]
-https://www.youtube.com/watch?v=pFptt7Cargc - Tame Impala - Let It Happen [Psychedelic Rock]
-https://www.youtube.com/watch?v=BqnG_Ei35JE - Crumb - Locket [Psychedelic Pop / Indie]
-https://www.youtube.com/watch?v=IJrKlSkxRHA - Unknown Mortal Orchestra - Hunnybee [Psychedelic Funk]`;
-      setFeedText(sample);
-      setFeedTracks(parseYouTubeFeedInput(sample));
-    } else {
-      const sample = `https://www.youtube.com/watch?v=8GW6sLrK40k - HOME - Resonance [Synthwave / Chillwave]
-https://www.youtube.com/watch?v=yergWdn968o - Com Truise - Brokendate [Synthwave / Analog]
-https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtempo]`;
-      setFeedText(sample);
-      setFeedTracks(parseYouTubeFeedInput(sample));
-    }
+  const handleAddManualSong = (e: React.FormEvent) => {
+    e.preventDefault();
+    const artist = manualArtist.trim();
+    const title = manualTitle.trim();
+    if (!artist || !title) return;
+
+    const userTags = normalizeBulkTags(manualTags);
+    const bracketPart = userTags.length > 0 ? ` [${userTags.join(' / ')}]` : '';
+    const urlPart = manualUrl.trim() ? `${manualUrl.trim()} - ` : '';
+    const line = `${urlPart}${artist} - ${title}${bracketPart}`;
+
+    const nextText = feedText.trim() ? `${feedText.trim()}\n${line}` : line;
+    setFeedText(nextText);
+    const filtered = filterMusicTracks(nextText);
+    setFeedTracks(filtered.tracks);
+
+    userTags.forEach((t) => addFavoriteSignal('tag', t));
+    setManualArtist('');
+    setManualTitle('');
+    setManualUrl('');
+    setManualTags('');
   };
 
   const handleAddCustomFavorite = (e: React.FormEvent) => {
@@ -748,25 +775,9 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
               value={bulkTagInput}
               onChange={(e) => setBulkTagInput(e.target.value)}
               aria-label={`Bulk tags for ${scopeLabel}`}
-              placeholder="e.g. acid-house, late-night, vinyl-rip"
+              placeholder="Type your own tags (comma-separated, e.g. breakbeat, vinyl-rip)..."
               className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-amber-400"
             />
-
-            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-              <span className="text-[11px] text-zinc-500">Quick tags:</span>
-              {['acid-house', 'late-night', 'vinyl-rip', 'deep-cut', 'warm-analog'].map(
-                (presetTag) => (
-                  <button
-                    key={presetTag}
-                    type="button"
-                    onClick={() => appendQuickBulkTag(presetTag)}
-                    className="px-2 py-0.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-amber-300 border border-zinc-800 rounded text-[11px] font-mono transition-colors cursor-pointer"
-                  >
-                    +#{presetTag}
-                  </button>
-                )
-              )}
-            </div>
           </div>
 
           <div className="lg:col-span-3 space-y-1.5">
@@ -832,6 +843,661 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
           </div>
         )}
       </div>
+    );
+  };
+
+  /**
+   * Renders the interactive GUI yt-dlp Command & Quality Builder section.
+   * Allows users to visually construct custom yt-dlp CLI arguments using presets for
+   * Audio-Only vs Video, format selectors, quality/bitrate/resolution toggles, and post-processing flags.
+   */
+  const renderYtDlpGuiBuilderSection = () => {
+    const isVideoMode =
+      ytDlpOptions.format === 'mp4-video' || ytDlpOptions.format === 'mkv-video';
+    const activeFlags = summarizeYtDlpActiveFlags(ytDlpOptions);
+
+    const previewTargetTracks =
+      guiCommandScope === 'single'
+        ? activePlaylistTracks.slice(0, 1).length > 0
+          ? activePlaylistTracks.slice(0, 1)
+          : CURATED_CATALOG.slice(0, 1)
+        : activePlaylistTracks.length > 0
+        ? activePlaylistTracks
+        : CURATED_CATALOG.slice(0, 2);
+
+    const effectiveOptionsForPreview: YtDlpOptions = {
+      ...ytDlpOptions,
+      batchFileMode: guiCommandScope === 'crate' ? ytDlpOptions.batchFileMode : false,
+      customTargetUrl:
+        guiCommandScope === 'custom' ? ytDlpOptions.customTargetUrl : '',
+    };
+
+    const constructedCliCommand = generateYtDlpCommand(
+      previewTargetTracks,
+      effectiveOptionsForPreview
+    );
+
+    const handleSelectPreset = (presetId: YtDlpGuiPresetId) => {
+      setActiveYtDlpPreset(presetId);
+      setYtDlpOptions((prev) => applyYtDlpGuiPreset(prev, presetId));
+    };
+
+    const handleSwitchMediaMode = (mode: 'audio' | 'video') => {
+      if (mode === 'video') {
+        setActiveYtDlpPreset('video-1080p-mp4');
+        setYtDlpOptions((prev) => ({
+          ...prev,
+          format:
+            prev.format === 'mp4-video' || prev.format === 'mkv-video'
+              ? prev.format
+              : 'mp4-video',
+          videoResolution: prev.videoResolution || '1080',
+        }));
+      } else {
+        setActiveYtDlpPreset('audio-best-mp3');
+        setYtDlpOptions((prev) => ({
+          ...prev,
+          format:
+            prev.format === 'mp4-video' || prev.format === 'mkv-video'
+              ? 'mp3'
+              : prev.format,
+        }));
+      }
+    };
+
+    const audioPresets = YT_DLP_GUI_PRESETS.filter((p) => p.category === 'audio');
+    const videoPresets = YT_DLP_GUI_PRESETS.filter((p) => p.category === 'video');
+
+    return (
+      <section
+        aria-label="GUI yt-dlp Command & Quality Builder"
+        className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-5"
+      >
+        {/* Section Header + Audio-Only vs Video Mode Switcher */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider bg-amber-400/15 text-amber-300 border border-amber-400/30 rounded">
+                GUI YT-DLP COMMAND BUILDER
+              </span>
+              <span className="text-xs font-mono text-emerald-400">
+                No Raw Terminal Typing Required · Zsh &amp; Bash Safe
+              </span>
+            </div>
+            <h2 className="text-base sm:text-lg font-display font-bold text-zinc-100">
+              Visual yt-dlp Command Constructor — Audio-Only vs Video Presets &amp; Quality Toggles
+            </h2>
+            <p className="text-xs text-zinc-400">
+              Click a preset or toggle audio/video formats, bitrates, resolutions, and metadata flags below to build your exact <code className="font-mono text-zinc-300">yt-dlp</code> command.
+            </p>
+          </div>
+
+          {/* Primary Audio-Only vs Video Mode Toggle */}
+          <div
+            role="group"
+            aria-label="Media Extraction Mode"
+            className="inline-flex items-center p-1 bg-zinc-950 border border-zinc-800 rounded-xl shrink-0 self-start lg:self-auto"
+          >
+            <button
+              type="button"
+              onClick={() => handleSwitchMediaMode('audio')}
+              className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer ${
+                !isVideoMode
+                  ? 'bg-amber-400 text-zinc-950 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Headphones className="w-3.5 h-3.5" />
+              <span>Audio-Only Mode (-x)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSwitchMediaMode('video')}
+              className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer ${
+                isVideoMode
+                  ? 'bg-amber-400 text-zinc-950 shadow-sm'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Video className="w-3.5 h-3.5" />
+              <span>Video + Audio Mode (-f)</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Row 1: Quick Presets for Audio-Only vs Video */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Audio-Only Presets Column */}
+          <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-xl p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                <Headphones className="w-3.5 h-3.5" />
+                Audio-Only Presets
+              </span>
+              <span className="text-[11px] font-mono text-zinc-500">Extracts pure audio stream</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {audioPresets.map((preset) => {
+                const isSelected = activeYtDlpPreset === preset.id && !isVideoMode;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => handleSelectPreset(preset.id)}
+                    className={`text-left p-2.5 rounded-lg border transition-colors cursor-pointer flex flex-col justify-between gap-1.5 ${
+                      isSelected
+                        ? 'bg-amber-400/15 border-amber-400 text-zinc-100'
+                        : 'bg-zinc-900/70 hover:bg-zinc-900 border-zinc-800 text-zinc-300'
+                    }`}
+                  >
+                    <div className="text-xs font-semibold leading-snug text-zinc-100">
+                      {preset.label.replace('Audio Only · ', '')}
+                    </div>
+                    <div className="text-[10px] font-mono text-amber-300/90 truncate">
+                      {preset.badge}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Video + Audio Presets Column */}
+          <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-xl p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                <Video className="w-3.5 h-3.5" />
+                Video + Audio Presets
+              </span>
+              <span className="text-[11px] font-mono text-zinc-500">Merges video + audio streams</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {videoPresets.map((preset) => {
+                const isSelected = activeYtDlpPreset === preset.id && isVideoMode;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => handleSelectPreset(preset.id)}
+                    className={`text-left p-2.5 rounded-lg border transition-colors cursor-pointer flex flex-col justify-between gap-1.5 ${
+                      isSelected
+                        ? 'bg-emerald-400/15 border-emerald-400 text-zinc-100'
+                        : 'bg-zinc-900/70 hover:bg-zinc-900 border-zinc-800 text-zinc-300'
+                    }`}
+                  >
+                    <div className="text-xs font-semibold leading-snug text-zinc-100">
+                      {preset.label.replace('Video + Audio · ', '')}
+                    </div>
+                    <div className="text-[10px] font-mono text-emerald-300/90 truncate">
+                      {preset.badge}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Row 2: Format & Quality Toggles + Post-Processing GUI Controls */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          {/* Left 7 cols: Container Format & Quality / Bitrate / Resolution Toggles */}
+          <div className="lg:col-span-7 bg-zinc-950/80 border border-zinc-800/80 rounded-xl p-4 space-y-4">
+            {!isVideoMode ? (
+              <>
+                {/* Audio Container Format Selector */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-zinc-200">
+                      1. Audio Container Format (<code className="font-mono text-amber-300">--audio-format</code>)
+                    </label>
+                    <span className="text-[11px] font-mono text-zinc-400">
+                      Active: -x --audio-format {ytDlpOptions.format}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                    {(
+                      [
+                        { id: 'mp3', label: 'MP3', sub: 'Universal' },
+                        { id: 'flac', label: 'FLAC', sub: 'Lossless' },
+                        { id: 'opus', label: 'Opus', sub: 'High Efficiency' },
+                        { id: 'm4a', label: 'M4A / AAC', sub: 'Apple / DJ' },
+                        { id: 'wav', label: 'WAV', sub: 'Uncompressed' },
+                      ] as const
+                    ).map((fmt) => (
+                      <button
+                        key={fmt.id}
+                        type="button"
+                        onClick={() =>
+                          setYtDlpOptions((prev) => ({ ...prev, format: fmt.id }))
+                        }
+                        className={`px-2.5 py-2 rounded-lg border text-left transition-colors cursor-pointer ${
+                          ytDlpOptions.format === fmt.id
+                            ? 'bg-amber-400 text-zinc-950 border-amber-400 font-semibold'
+                            : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                        }`}
+                      >
+                        <div className="text-xs">{fmt.label}</div>
+                        <div
+                          className={`text-[10px] font-mono ${
+                            ytDlpOptions.format === fmt.id ? 'text-zinc-900' : 'text-zinc-500'
+                          }`}
+                        >
+                          {fmt.sub}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Audio Quality / Bitrate Toggles */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-zinc-200">
+                      2. Audio Quality / Bitrate Toggle (<code className="font-mono text-amber-300">--audio-quality</code>)
+                    </label>
+                    <span className="text-[11px] font-mono text-zinc-400">
+                      --audio-quality {ytDlpOptions.audioQuality}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                    {(
+                      [
+                        { id: '0', label: 'Best VBR (0)', desc: 'Max V0 quality' },
+                        { id: '320K', label: '320K CBR', desc: 'Club / DJ standard' },
+                        { id: '256K', label: '256K Bitrate', desc: 'High quality' },
+                        { id: '192K', label: '192K Bitrate', desc: 'Balanced size' },
+                        { id: '128K', label: '128K Compact', desc: 'Fast mobile' },
+                        { id: '2', label: 'High VBR (2)', desc: ' ~190-210 kbps' },
+                        { id: '5', label: 'Medium VBR (5)', desc: '~130 kbps' },
+                      ] as const
+                    ).map((q) => (
+                      <button
+                        key={q.id}
+                        type="button"
+                        onClick={() =>
+                          setYtDlpOptions((prev) => ({ ...prev, audioQuality: q.id }))
+                        }
+                        className={`px-2.5 py-2 rounded-lg border text-left transition-colors cursor-pointer ${
+                          ytDlpOptions.audioQuality === q.id
+                            ? 'bg-amber-400 text-zinc-950 border-amber-400 font-semibold'
+                            : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                        }`}
+                      >
+                        <div className="text-xs">{q.label}</div>
+                        <div
+                          className={`text-[10px] font-mono ${
+                            ytDlpOptions.audioQuality === q.id ? 'text-zinc-900' : 'text-zinc-500'
+                          }`}
+                        >
+                          {q.desc}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Video Container Format Selector */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-zinc-200">
+                      1. Video Container Format (<code className="font-mono text-emerald-300">--merge-output-format</code>)
+                    </label>
+                    <span className="text-[11px] font-mono text-zinc-400">
+                      Active: {ytDlpOptions.format === 'mkv-video' ? 'MKV Container' : 'MP4 Container'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {(
+                      [
+                        {
+                          id: 'mp4-video',
+                          label: 'MP4 Video + M4A Audio',
+                          sub: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]',
+                        },
+                        {
+                          id: 'mkv-video',
+                          label: 'MKV Best Stream Merge',
+                          sub: 'bestvideo+bestaudio --merge-output-format mkv',
+                        },
+                      ] as const
+                    ).map((vfmt) => (
+                      <button
+                        key={vfmt.id}
+                        type="button"
+                        onClick={() =>
+                          setYtDlpOptions((prev) => ({ ...prev, format: vfmt.id }))
+                        }
+                        className={`px-3 py-2.5 rounded-lg border text-left transition-colors cursor-pointer ${
+                          ytDlpOptions.format === vfmt.id
+                            ? 'bg-emerald-400 text-zinc-950 border-emerald-400 font-semibold'
+                            : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                        }`}
+                      >
+                        <div className="text-xs">{vfmt.label}</div>
+                        <div
+                          className={`text-[10px] font-mono ${
+                            ytDlpOptions.format === vfmt.id ? 'text-zinc-900' : 'text-zinc-500'
+                          }`}
+                        >
+                          {vfmt.sub}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Video Resolution / Quality Toggle Buttons */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-zinc-200">
+                      2. Video Resolution &amp; Quality Ceiling (<code className="font-mono text-emerald-300">-f height&lt;=N</code>)
+                    </label>
+                    <span className="text-[11px] font-mono text-zinc-400">
+                      Resolution: {ytDlpOptions.videoResolution || 'best'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                    {(
+                      [
+                        { id: 'best', label: 'Best Available', desc: 'Unrestricted Max' },
+                        { id: '2160', label: '4K Ultra HD', desc: 'height<=2160' },
+                        { id: '1440', label: '1440p QHD', desc: 'height<=1440' },
+                        { id: '1080', label: '1080p Full HD', desc: 'height<=1080' },
+                        { id: '720', label: '720p HD', desc: 'height<=720' },
+                        { id: '480', label: '480p Compact', desc: 'height<=480' },
+                      ] as { id: YtDlpVideoResolution; label: string; desc: string }[]
+                    ).map((res) => {
+                      const currentRes = ytDlpOptions.videoResolution || 'best';
+                      const isSelected = currentRes === res.id;
+                      return (
+                        <button
+                          key={res.id}
+                          type="button"
+                          onClick={() =>
+                            setYtDlpOptions((prev) => ({ ...prev, videoResolution: res.id }))
+                          }
+                          className={`px-2.5 py-2 rounded-lg border text-left transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'bg-emerald-400 text-zinc-950 border-emerald-400 font-semibold'
+                              : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                          }`}
+                        >
+                          <div className="text-xs">{res.label}</div>
+                          <div
+                            className={`text-[10px] font-mono ${
+                              isSelected ? 'text-zinc-900' : 'text-zinc-500'
+                            }`}
+                          >
+                            {res.desc}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Output Filename Template Selector Pills */}
+            <div className="space-y-2 pt-2 border-t border-zinc-800/80">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <label
+                  htmlFor="gui-ytdlp-output-template"
+                  className="text-xs font-semibold text-zinc-200"
+                >
+                  3. Output Filename Pattern (<code className="font-mono text-amber-300">-o</code>)
+                </label>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {(
+                    [
+                      { label: 'Title Only', tpl: '%(title)s.%(ext)s' },
+                      { label: 'Artist - Title', tpl: '%(artist,uploader)s - %(title)s.%(ext)s' },
+                      { label: '# - Title', tpl: '%(playlist_index)s - %(title)s.%(ext)s' },
+                      { label: 'By Channel Folder', tpl: 'crates/%(uploader)s/%(title)s.%(ext)s' },
+                    ] as const
+                  ).map((presetTpl) => (
+                    <button
+                      key={presetTpl.label}
+                      type="button"
+                      onClick={() =>
+                        setYtDlpOptions((prev) => ({ ...prev, outputTemplate: presetTpl.tpl }))
+                      }
+                      className={`px-2 py-0.5 rounded text-[11px] font-mono border transition-colors cursor-pointer ${
+                        ytDlpOptions.outputTemplate === presetTpl.tpl
+                          ? 'bg-amber-400/20 text-amber-300 border-amber-400/40'
+                          : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-400 border-zinc-800'
+                      }`}
+                    >
+                      {presetTpl.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <input
+                id="gui-ytdlp-output-template"
+                type="text"
+                value={ytDlpOptions.outputTemplate}
+                onChange={(e) =>
+                  setYtDlpOptions((prev) => ({ ...prev, outputTemplate: e.target.value }))
+                }
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs font-mono text-zinc-100 focus:outline-none focus:border-amber-400"
+              />
+            </div>
+          </div>
+
+          {/* Right 5 cols: Post-Processing Toggles & Target Scope */}
+          <div className="lg:col-span-5 bg-zinc-950/80 border border-zinc-800/80 rounded-xl p-4 flex flex-col justify-between space-y-4">
+            <div className="space-y-3">
+              <div className="text-xs font-semibold text-zinc-200">
+                4. Post-Processing, Metadata &amp; SponsorBlock Toggles
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="flex items-start gap-2 p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={ytDlpOptions.embedMetadata}
+                    onChange={(e) =>
+                      setYtDlpOptions((prev) => ({ ...prev, embedMetadata: e.target.checked }))
+                    }
+                    className="mt-0.5 rounded border-zinc-700 bg-zinc-950 text-amber-400 focus:ring-amber-400"
+                  />
+                  <div>
+                    <div className="text-xs font-medium text-zinc-200">Embed Metadata</div>
+                    <div className="text-[10px] font-mono text-zinc-500">--embed-metadata</div>
+                  </div>
+                </label>
+
+                <label
+                  className={`flex items-start gap-2 p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800 select-none ${
+                    isVideoMode ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    disabled={isVideoMode}
+                    checked={ytDlpOptions.embedThumbnail && !isVideoMode}
+                    onChange={(e) =>
+                      setYtDlpOptions((prev) => ({ ...prev, embedThumbnail: e.target.checked }))
+                    }
+                    className="mt-0.5 rounded border-zinc-700 bg-zinc-950 text-amber-400 focus:ring-amber-400"
+                  />
+                  <div>
+                    <div className="text-xs font-medium text-zinc-200">Embed Cover Art</div>
+                    <div className="text-[10px] font-mono text-zinc-500">--embed-thumbnail</div>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2 p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={ytDlpOptions.sponsorBlock}
+                    onChange={(e) =>
+                      setYtDlpOptions((prev) => ({ ...prev, sponsorBlock: e.target.checked }))
+                    }
+                    className="mt-0.5 rounded border-zinc-700 bg-zinc-950 text-amber-400 focus:ring-amber-400"
+                  />
+                  <div>
+                    <div className="text-xs font-medium text-zinc-200">SponsorBlock Trim</div>
+                    <div className="text-[10px] font-mono text-zinc-500">Skip intro/outro/non-music</div>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2 p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={ytDlpOptions.addSubtitles}
+                    onChange={(e) =>
+                      setYtDlpOptions((prev) => ({ ...prev, addSubtitles: e.target.checked }))
+                    }
+                    className="mt-0.5 rounded border-zinc-700 bg-zinc-950 text-amber-400 focus:ring-amber-400"
+                  />
+                  <div>
+                    <div className="text-xs font-medium text-zinc-200">Auto Subtitles</div>
+                    <div className="text-[10px] font-mono text-zinc-500">--write-auto-subs</div>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2 p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={ytDlpOptions.useSearchFallback}
+                    onChange={(e) =>
+                      setYtDlpOptions((prev) => ({ ...prev, useSearchFallback: e.target.checked }))
+                    }
+                    className="mt-0.5 rounded border-zinc-700 bg-zinc-950 text-amber-400 focus:ring-amber-400"
+                  />
+                  <div>
+                    <div className="text-xs font-medium text-zinc-200">ytsearch1 Fallback</div>
+                    <div className="text-[10px] font-mono text-zinc-500">Search by Artist - Title</div>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2 p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={ytDlpOptions.batchFileMode}
+                    onChange={(e) =>
+                      setYtDlpOptions((prev) => ({ ...prev, batchFileMode: e.target.checked }))
+                    }
+                    className="mt-0.5 rounded border-zinc-700 bg-zinc-950 text-amber-400 focus:ring-amber-400"
+                  />
+                  <div>
+                    <div className="text-xs font-medium text-zinc-200">Bash Script Header</div>
+                    <div className="text-[10px] font-mono text-zinc-500">#!/usr/bin/env bash</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Target Scope Selector (Single Track vs Full Crate vs Custom URL) */}
+            <div className="space-y-2 pt-2 border-t border-zinc-800/80">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-200">5. Command Target</span>
+                <div className="inline-flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 text-[11px]">
+                  {(
+                    [
+                      { id: 'single', label: 'Single Track' },
+                      { id: 'crate', label: `Active Crate (${activePlaylistTracks.length})` },
+                      { id: 'custom', label: 'Custom URL / Song' },
+                    ] as const
+                  ).map((sc) => (
+                    <button
+                      key={sc.id}
+                      type="button"
+                      onClick={() => setGuiCommandScope(sc.id)}
+                      className={`px-2 py-1 rounded transition-colors cursor-pointer ${
+                        guiCommandScope === sc.id
+                          ? 'bg-amber-400 text-zinc-950 font-semibold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      {sc.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {guiCommandScope === 'custom' && (
+                <input
+                  type="text"
+                  aria-label="Custom target YouTube URL or song query"
+                  value={ytDlpOptions.customTargetUrl || ''}
+                  onChange={(e) =>
+                    setYtDlpOptions((prev) => ({ ...prev, customTargetUrl: e.target.value }))
+                  }
+                  placeholder="Paste https://www.youtube.com/watch?v=... or Artist - Song"
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs font-mono text-zinc-100 focus:outline-none focus:border-amber-400"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Row 3: Visual CLI Argument Chips + Live Command Output & Actions */}
+        <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] font-mono text-zinc-400 mr-1">
+                Constructed Flags:
+              </span>
+              {activeFlags.map((chip) => (
+                <span
+                  key={chip.flag}
+                  className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[11px] font-mono text-amber-300"
+                  title={chip.label}
+                >
+                  {chip.flag}
+                </span>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => copyToClipboard(constructedCliCommand, 'gui-ytdlp-cmd')}
+                className="px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold text-xs rounded-lg transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                {copiedId === 'gui-ytdlp-cmd' ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Copied yt-dlp Command!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Constructed Command</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  downloadFile(
+                    `cratedig-${isVideoMode ? 'video' : ytDlpOptions.format}-download.sh`,
+                    constructedCliCommand,
+                    'text/x-shellscript;charset=utf-8'
+                  )
+                }
+                className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 font-medium text-xs rounded-lg transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5 text-amber-400" />
+                <span>Download .sh</span>
+              </button>
+            </div>
+          </div>
+
+          <pre
+            aria-label="Constructed yt-dlp CLI command preview"
+            className="p-3 bg-zinc-900/90 border border-zinc-800/90 rounded-lg text-xs font-mono text-emerald-300 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed select-all"
+          >
+            {constructedCliCommand}
+          </pre>
+        </div>
+      </section>
     );
   };
 
@@ -936,94 +1602,8 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
               </button>
             </div>
 
-            {/* Default yt-dlp Audio & Cookie Settings Card */}
-            <section className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-4">
-              <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-                <div>
-                  <h2 className="text-sm font-display font-semibold text-zinc-100">
-                    Default yt-dlp Audio &amp; Cookie Preferences
-                  </h2>
-                  <p className="text-xs text-zinc-400">
-                    Used whenever generating <code className="font-mono text-zinc-300">.sh</code> download scripts across the pipeline.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={resetFavoritesToDefault}
-                  className="px-3 py-1.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded-lg text-xs cursor-pointer"
-                >
-                  Reset Taste DNA to Defaults
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="space-y-1.5">
-                  <label htmlFor="settings-cookie-source" className="block text-xs font-medium text-zinc-300">
-                    Cookie Mode
-                  </label>
-                  <select
-                    id="settings-cookie-source"
-                    value={ytDlpOptions.cookieSource || 'browser'}
-                    onChange={(e) =>
-                      setYtDlpOptions((prev) => ({
-                        ...prev,
-                        cookieSource: e.target.value as YtDlpCookieSource,
-                      }))
-                    }
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
-                  >
-                    <option value="browser">Browser Cookies (--cookies-from-browser)</option>
-                    <option value="file">Netscape File (--cookies cookies.txt)</option>
-                    <option value="none">No Cookies (Public Only)</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label htmlFor="settings-browser" className="block text-xs font-medium text-zinc-300">
-                    Default Browser
-                  </label>
-                  <select
-                    id="settings-browser"
-                    value={ytDlpOptions.cookieBrowser || 'firefox'}
-                    onChange={(e) =>
-                      setYtDlpOptions((prev) => ({
-                        ...prev,
-                        cookieBrowser: e.target.value as YtDlpCookieBrowser,
-                      }))
-                    }
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
-                  >
-                    <option value="firefox">Firefox</option>
-                    <option value="chrome">Chrome</option>
-                    <option value="brave">Brave</option>
-                    <option value="edge">Edge</option>
-                    <option value="safari">Safari</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label htmlFor="settings-format" className="block text-xs font-medium text-zinc-300">
-                    Audio Format
-                  </label>
-                  <select
-                    id="settings-format"
-                    value={ytDlpOptions.format}
-                    onChange={(e) =>
-                      setYtDlpOptions((prev) => ({
-                        ...prev,
-                        format: e.target.value as YtDlpOptions['format'],
-                      }))
-                    }
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
-                  >
-                    <option value="mp3">MP3 Audio (-x --audio-format mp3)</option>
-                    <option value="flac">FLAC Lossless (-x --audio-format flac)</option>
-                    <option value="opus">Opus (-x --audio-format opus)</option>
-                    <option value="m4a">M4A / AAC (-x --audio-format m4a)</option>
-                  </select>
-                </div>
-              </div>
-            </section>
+            {/* Default yt-dlp Audio/Video & Cookie Settings Card + Full GUI Builder */}
+            {renderYtDlpGuiBuilderSection()}
 
             {/* GitHub Pages CI/CD Deployer */}
             <GitHubPagesDeployer
@@ -1145,72 +1725,119 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
             </section>
 
             {/* =================================================================
-                STEP 01: CONNECT COOKIES (activeStep === 'cookies')
+                STEP 01: CONNECT COOKIES & GUI YT-DLP BUILDER (activeStep === 'cookies')
                ================================================================= */}
             {activeStep === 'cookies' && (
-              <YouTubeFeedImporter
-                cookieSource={ytDlpOptions.cookieSource || 'browser'}
-                cookieBrowser={ytDlpOptions.cookieBrowser || 'firefox'}
-                cookieProfile={ytDlpOptions.cookieProfile || ''}
-                cookieFilePath={ytDlpOptions.cookieFilePath || './cookies.txt'}
-                onUpdateCookieSettings={(settings) =>
-                  setYtDlpOptions((prev) => ({ ...prev, ...settings }))
-                }
-                onImportAuthenticatedFeed={(rawOutput, tracks) => {
-                  setFeedText(rawOutput);
-                  setFeedTracks(tracks);
-                }}
-                onProceedToNextStep={() => setActiveStep('feed')}
-              />
+              <div className="space-y-6">
+                <YouTubeFeedImporter
+                  cookieSource={ytDlpOptions.cookieSource || 'browser'}
+                  cookieBrowser={ytDlpOptions.cookieBrowser || 'firefox'}
+                  cookieProfile={ytDlpOptions.cookieProfile || ''}
+                  cookieFilePath={ytDlpOptions.cookieFilePath || './cookies.txt'}
+                  onUpdateCookieSettings={(settings) =>
+                    setYtDlpOptions((prev) => ({ ...prev, ...settings }))
+                  }
+                  onImportAuthenticatedFeed={(rawOutput, tracks) => {
+                    setFeedText(rawOutput);
+                    setFeedTracks(tracks);
+                  }}
+                  onProceedToNextStep={() => setActiveStep('feed')}
+                />
+
+                {/* Visual GUI yt-dlp Command & Quality Builder */}
+                {renderYtDlpGuiBuilderSection()}
+              </div>
             )}
 
             {/* =================================================================
-                STEP 02: FILTER FEED SONGS (activeStep === 'feed')
+                STEP 02: ADD & FILTER FEED SONGS (activeStep === 'feed')
                ================================================================= */}
             {activeStep === 'feed' && (
               <section className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
-                  <div>
-                    <h2 className="text-sm sm:text-base font-display font-semibold text-zinc-100">
-                      Paste Your YouTube Feed Lines &amp; Strip Out Non-Music
-                    </h2>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      Paste lines from <code className="font-mono text-zinc-300">my-youtube-feed.txt</code> (or pick a 1-click preset below). Click <strong>Run filterMusicTracks</strong> to remove podcasts and news.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => handleLoadPresetFeed('electronic')}
-                      className="px-2.5 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors cursor-pointer"
-                    >
-                      Preset: UK Electronic
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleLoadPresetFeed('psych')}
-                      className="px-2.5 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors cursor-pointer"
-                    >
-                      Preset: Psych Funk
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleLoadPresetFeed('synth')}
-                      className="px-2.5 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors cursor-pointer"
-                    >
-                      Preset: Synthwave
-                    </button>
-                  </div>
+                <div className="border-b border-zinc-800 pb-4">
+                  <h2 className="text-sm sm:text-base font-display font-semibold text-zinc-100">
+                    Add Songs with Your Own #Tags or Filter Pasted YouTube Output
+                  </h2>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Add songs individually below (with only the <code className="font-mono text-amber-300">#tags</code> you choose) or paste multiple YouTube URLs / <code className="font-mono text-zinc-300">yt-dlp</code> lines and run <strong>filterMusicTracks</strong> to strip out podcasts, news, and updates.
+                  </p>
                 </div>
+
+                {/* Direct 1-Row Song + User Tag Adder */}
+                <form
+                  onSubmit={handleAddManualSong}
+                  className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-3.5 grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end"
+                >
+                  <div className="sm:col-span-3 space-y-1">
+                    <label htmlFor="step2-artist" className="block text-[11px] text-zinc-400">
+                      Artist *
+                    </label>
+                    <input
+                      id="step2-artist"
+                      type="text"
+                      value={manualArtist}
+                      onChange={(e) => setManualArtist(e.target.value)}
+                      placeholder="Artist Name"
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-2 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+                  <div className="sm:col-span-3 space-y-1">
+                    <label htmlFor="step2-title" className="block text-[11px] text-zinc-400">
+                      Song Title *
+                    </label>
+                    <input
+                      id="step2-title"
+                      type="text"
+                      value={manualTitle}
+                      onChange={(e) => setManualTitle(e.target.value)}
+                      placeholder="Song Title"
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-2 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+                  <div className="sm:col-span-3 space-y-1">
+                    <label htmlFor="step2-tags" className="block text-[11px] text-zinc-400">
+                      Your Custom #Tags (Optional)
+                    </label>
+                    <input
+                      id="step2-tags"
+                      type="text"
+                      value={manualTags}
+                      onChange={(e) => setManualTags(e.target.value)}
+                      placeholder="tag1, tag2 (only your tags)"
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-2 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+                  <div className="sm:col-span-2 space-y-1">
+                    <label htmlFor="step2-url" className="block text-[11px] text-zinc-400">
+                      YouTube URL (Optional)
+                    </label>
+                    <input
+                      id="step2-url"
+                      type="text"
+                      value={manualUrl}
+                      onChange={(e) => setManualUrl(e.target.value)}
+                      placeholder="https://youtube.com/watch?v=..."
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-2 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <button
+                      type="submit"
+                      className="w-full py-2 px-3 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
+                    >
+                      + Add
+                    </button>
+                  </div>
+                </form>
 
                 <textarea
                   id="youtube-feed-textarea"
                   aria-label="Feed Input"
-                  rows={7}
+                  rows={6}
                   value={feedText}
                   onChange={(e) => setFeedText(e.target.value)}
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 text-xs font-mono text-zinc-200 focus:outline-none focus:border-amber-400 leading-relaxed"
-                  placeholder="https://www.youtube.com/watch?v=... - Artist - Title [Genre]"
+                  placeholder="Paste YouTube URLs or 'Artist - Song Title [your-tag]' lines here..."
                 />
 
                 <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -1234,7 +1861,7 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
                       className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold text-xs rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
                     >
                       <Sparkles className="w-3.5 h-3.5" />
-                      <span>Save Songs &amp; Go to Step 03: Search Music</span>
+                      <span>Save Songs &amp; Go to Step 03: Search &amp; DNA</span>
                     </button>
                   </div>
                 </div>
@@ -1257,7 +1884,7 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
                           (p.artist.toLowerCase() === track.artist.toLowerCase() &&
                             p.title.toLowerCase() === track.title.toLowerCase())
                       );
-                      return exists ? prev : [track, ...prev];
+                      return exists ? prev.map((p) => (p.id === track.id ? track : p)) : [track, ...prev];
                     });
                   }}
                   onToggleTrackInPlaylist={(trackId) => toggleTrackInPlaylist(trackId)}
@@ -1265,7 +1892,7 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
                   activePlaylistTrackIds={activePlaylist?.trackIds || []}
                 />
 
-                {/* Part 2: Clear Taste DNA Favorites Editor (Artists, Tags & Categories) */}
+                {/* Part 2: User-Only Taste DNA Signals (Zero Default Tags/Suggestions) */}
                 <section
                   aria-label="Your Taste DNA Signals"
                   className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-4"
@@ -1273,15 +1900,23 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
                     <div>
                       <h2 className="text-sm font-display font-semibold text-zinc-100">
-                        Your Active Taste DNA Signals (Used to Rank &amp; Guide Gemini AI)
+                        Your Custom Taste DNA Signals (Only Added by You — No Default Tags)
                       </h2>
                       <p className="text-xs text-zinc-400">
-                        Add your favorite artists, sonic <code className="font-mono text-zinc-300">#tags</code>, or genres below. Click any signal to remove it.
+                        Add your own favorite artists, custom <code className="font-mono text-zinc-300">#tags</code>, or genres below. Click any signal to remove it.
                       </p>
                     </div>
-                    <span className="text-xs font-mono text-amber-300 tabular-nums">
-                      Target Tempo: {tasteProfile.targetBpmRange[0]}–{tasteProfile.targetBpmRange[1]} BPM
-                    </span>
+                    {(favoriteArtists.length > 0 ||
+                      favoriteTags.length > 0 ||
+                      favoriteCategories.length > 0) && (
+                      <button
+                        type="button"
+                        onClick={resetFavoritesToDefault}
+                        className="px-2.5 py-1 bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-rose-300 border border-zinc-800 rounded text-xs cursor-pointer"
+                      >
+                        Clear All Signals
+                      </button>
+                    )}
                   </div>
 
                   <form onSubmit={handleAddCustomFavorite} className="flex flex-col sm:flex-row gap-2">
@@ -1292,7 +1927,7 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
                       className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-amber-400"
                     >
                       <option value="artist">Favorite Artist</option>
-                      <option value="tag">Favorite #Tag</option>
+                      <option value="tag">Custom #Tag</option>
                       <option value="category">Favorite Category</option>
                     </select>
                     <input
@@ -1302,10 +1937,10 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
                       onChange={(e) => setNewFavValue(e.target.value)}
                       placeholder={
                         newFavType === 'artist'
-                          ? 'Type an artist name (e.g. Aphex Twin, Overmono)...'
+                          ? 'Type an artist name you want to track...'
                           : newFavType === 'tag'
-                          ? 'Type a sonic tag (e.g. breakbeat, idm, acid-house)...'
-                          : 'Type a category (e.g. Electronic, Psychedelic Rock)...'
+                          ? 'Type your own custom #tag...'
+                          : 'Type a genre or category...'
                       }
                       className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-amber-400"
                     />
@@ -1313,66 +1948,78 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
                       type="submit"
                       className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold rounded-lg text-xs transition-colors cursor-pointer whitespace-nowrap"
                     >
-                      Add to Taste DNA
+                      Add Signal
                     </button>
                   </form>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
                     <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-lg p-3.5 space-y-2">
                       <div className="text-xs font-semibold text-zinc-300 flex justify-between">
-                        <span>Favorite Artists</span>
+                        <span>Your Artists</span>
                         <span className="font-mono text-amber-400">{favoriteArtists.length}</span>
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {favoriteArtists.map((artist) => (
-                          <button
-                            key={artist}
-                            type="button"
-                            onClick={() => toggleFavoriteArtist(artist)}
-                            className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-zinc-800 rounded text-xs cursor-pointer"
-                          >
-                            {artist} ×
-                          </button>
-                        ))}
-                      </div>
+                      {favoriteArtists.length === 0 ? (
+                        <p className="text-[11px] text-zinc-500">No artists added yet.</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {favoriteArtists.map((artist) => (
+                            <button
+                              key={artist}
+                              type="button"
+                              onClick={() => toggleFavoriteArtist(artist)}
+                              className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-zinc-800 rounded text-xs cursor-pointer"
+                            >
+                              {artist} ×
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-lg p-3.5 space-y-2">
                       <div className="text-xs font-semibold text-zinc-300 flex justify-between">
-                        <span>Favorite Sonic Tags</span>
+                        <span>Your Custom #Tags</span>
                         <span className="font-mono text-amber-400">{favoriteTags.length}</span>
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {favoriteTags.map((tag) => (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => toggleFavoriteTag(tag)}
-                            className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 rounded text-xs font-mono cursor-pointer"
-                          >
-                            #{tag} ×
-                          </button>
-                        ))}
-                      </div>
+                      {favoriteTags.length === 0 ? (
+                        <p className="text-[11px] text-zinc-500">No tags added yet — only your tags appear here.</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {favoriteTags.map((tag) => (
+                            <button
+                              key={tag}
+                              type="button"
+                              onClick={() => toggleFavoriteTag(tag)}
+                              className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 rounded text-xs font-mono cursor-pointer"
+                            >
+                              #{tag} ×
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-lg p-3.5 space-y-2">
                       <div className="text-xs font-semibold text-zinc-300 flex justify-between">
-                        <span>Favorite Categories</span>
+                        <span>Your Categories</span>
                         <span className="font-mono text-emerald-400">{favoriteCategories.length}</span>
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {favoriteCategories.map((cat) => (
-                          <button
-                            key={cat}
-                            type="button"
-                            onClick={() => toggleFavoriteCategory(cat)}
-                            className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-emerald-300 border border-zinc-800 rounded text-xs cursor-pointer"
-                          >
-                            {cat} ×
-                          </button>
-                        ))}
-                      </div>
+                      {favoriteCategories.length === 0 ? (
+                        <p className="text-[11px] text-zinc-500">No categories added yet.</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {favoriteCategories.map((cat) => (
+                            <button
+                              key={cat}
+                              type="button"
+                              onClick={() => toggleFavoriteCategory(cat)}
+                              className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-emerald-300 border border-zinc-800 rounded text-xs cursor-pointer"
+                            >
+                              {cat} ×
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </section>
@@ -1380,25 +2027,88 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
             )}
 
             {/* =================================================================
-                STEP 04: GEMINI CRATE AI & EXAMPLES (activeStep === 'assistant')
+                STEP 04: TASTE REGRESSION TRAINING & GEMINI PROMPT LAB (activeStep === 'assistant')
                ================================================================= */}
             {activeStep === 'assistant' && (
-              <GeminiCrateChatbot
-                activePlaylistName={activePlaylist?.name || 'Active Crate'}
-                activePlaylistTracks={activePlaylistTracks}
-                onAddSuggestedTrackToCatalog={(track) => {
-                  setCustomCatalogTracks((prev) => {
-                    const exists = prev.some(
-                      (p) =>
-                        p.id === track.id ||
-                        (p.artist.toLowerCase() === track.artist.toLowerCase() &&
-                          p.title.toLowerCase() === track.title.toLowerCase())
-                    );
-                    return exists ? prev : [track, ...prev];
-                  });
-                }}
-                onAddTrackToActivePlaylist={(trackId) => addTrackToPlaylistIfAbsent(trackId)}
-              />
+              <div className="space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2 bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3">
+                  <div
+                    role="tablist"
+                    aria-label="AI Discovery Modes"
+                    className="inline-flex items-center gap-1.5 p-1 bg-zinc-950 border border-zinc-800 rounded-lg"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={aiLabMode === 'regression'}
+                      onClick={() => setAiLabMode('regression')}
+                      className={`px-3.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                        aiLabMode === 'regression'
+                          ? 'bg-amber-400 text-zinc-950 font-semibold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Taste Regression &amp; Prompt Engineering Lab
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={aiLabMode === 'chat'}
+                      onClick={() => setAiLabMode('chat')}
+                      className={`px-3.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                        aiLabMode === 'chat'
+                          ? 'bg-amber-400 text-zinc-950 font-semibold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Gemini Crate AI Chat
+                    </button>
+                  </div>
+                  <span className="text-xs font-mono text-zinc-400">
+                    Train on your samples (y = 0..10) &amp; search YouTube with engineered prompts
+                  </span>
+                </div>
+
+                {aiLabMode === 'regression' ? (
+                  <TasteRegressionLab
+                    userTracks={[...feedTracks, ...customCatalogTracks]}
+                    activePlaylistTracks={activePlaylistTracks}
+                    onAddDiscoveredTrackToCatalog={(track) => {
+                      setCustomCatalogTracks((prev) => {
+                        const exists = prev.some(
+                          (p) =>
+                            p.id === track.id ||
+                            (p.artist.toLowerCase() === track.artist.toLowerCase() &&
+                              p.title.toLowerCase() === track.title.toLowerCase())
+                        );
+                        return exists ? prev : [track, ...prev];
+                      });
+                    }}
+                    onAddTrackToActivePlaylist={(trackId) =>
+                      addTrackToPlaylistIfAbsent(trackId)
+                    }
+                  />
+                ) : (
+                  <GeminiCrateChatbot
+                    activePlaylistName={activePlaylist?.name || 'Active Crate'}
+                    activePlaylistTracks={activePlaylistTracks}
+                    onAddSuggestedTrackToCatalog={(track) => {
+                      setCustomCatalogTracks((prev) => {
+                        const exists = prev.some(
+                          (p) =>
+                            p.id === track.id ||
+                            (p.artist.toLowerCase() === track.artist.toLowerCase() &&
+                              p.title.toLowerCase() === track.title.toLowerCase())
+                        );
+                        return exists ? prev : [track, ...prev];
+                      });
+                    }}
+                    onAddTrackToActivePlaylist={(trackId) =>
+                      addTrackToPlaylistIfAbsent(trackId)
+                    }
+                  />
+                )}
+              </div>
             )}
 
             {/* =================================================================
@@ -1455,7 +2165,22 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
                       }`}
                     >
                       <FileCode2 className="w-3.5 h-3.5" />
-                      <span>Download .m3u / .pls / .sh</span>
+                      <span>Download .m3u / .pls / .json / .sh</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={exportSubTab === 'ytdlp-gui'}
+                      onClick={() => setExportSubTab('ytdlp-gui')}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
+                        exportSubTab === 'ytdlp-gui'
+                          ? 'bg-amber-400 text-zinc-950 font-semibold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>GUI yt-dlp Builder</span>
                     </button>
 
                     <button
@@ -1815,14 +2540,34 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
                           Select multiple tracks below to apply tags or categories simultaneously.
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setExportSubTab('exporter')}
-                        className="px-3.5 py-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                      >
-                        <FileCode2 className="w-3.5 h-3.5" />
-                        Download .m3u / .pls / .sh
-                      </button>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const payload = buildPlaylistExportPayload(activePlaylistTracks, {
+                              playlistName: activePlaylist.name,
+                              format: 'json',
+                            });
+                            downloadFile(payload.filename, payload.content, payload.mimeType);
+                            setBulkEditStatusMessage(
+                              `Exported ${payload.filename} (${payload.trackCount} tracks with titles & artists).`
+                            );
+                          }}
+                          disabled={activePlaylistTracks.length === 0}
+                          className="px-3.5 py-2 bg-zinc-950 hover:bg-zinc-800 disabled:opacity-50 text-amber-300 border border-amber-400/40 font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Export Playlist .json
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setExportSubTab('exporter')}
+                          className="px-3.5 py-2 bg-amber-400 hover:bg-amber-300 text-zinc-950 font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        >
+                          <FileCode2 className="w-3.5 h-3.5" />
+                          Download .m3u / .pls / .json / .sh
+                        </button>
+                      </div>
                     </div>
 
                     {activePlaylistTracks.length === 0 ? (
@@ -1920,19 +2665,24 @@ https://www.youtube.com/watch?v=ziAqB9nb_To - Tycho - Awake [Chillwave / Downtem
                   </section>
                 )}
 
-                {/* SUB-VIEW 5C: PLAYLIST EXPORTER (.m3u / .pls / .sh) */}
+                {/* SUB-VIEW 5C: PLAYLIST EXPORTER (.m3u / .pls / .json / .sh) */}
                 {exportSubTab === 'exporter' && (
-                  <PlaylistExporter
-                    tracks={allTracksPool}
-                    savedTrackIds={activePlaylist.trackIds}
-                    defaultPlaylistName={activePlaylist.name}
-                    ytDlpOptions={ytDlpOptions}
-                    selectedTrackIds={selectedTrackIds}
-                    onChangeSelectedTrackIds={setSelectedTrackIds}
-                  />
+                  <div className="space-y-5">
+                    <PlaylistExporter
+                      tracks={allTracksPool}
+                      savedTrackIds={activePlaylist.trackIds}
+                      defaultPlaylistName={activePlaylist.name}
+                      ytDlpOptions={ytDlpOptions}
+                      selectedTrackIds={selectedTrackIds}
+                      onChangeSelectedTrackIds={setSelectedTrackIds}
+                    />
+                  </div>
                 )}
 
-                {/* SUB-VIEW 5D: TASTE ANALYTICS CHARTS */}
+                {/* SUB-VIEW 5D: VISUAL GUI YT-DLP COMMAND & QUALITY BUILDER */}
+                {exportSubTab === 'ytdlp-gui' && renderYtDlpGuiBuilderSection()}
+
+                {/* SUB-VIEW 5E: TASTE ANALYTICS CHARTS */}
                 {exportSubTab === 'analytics' && (
                   <TasteAnalytics catalogTracks={allTracksPool} />
                 )}
