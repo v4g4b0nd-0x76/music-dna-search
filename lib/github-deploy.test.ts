@@ -222,3 +222,27 @@ test('evaluateRepoAndBranchDiagnostics evaluates repository permissions, branch 
   );
 });
 
+test('rewriteExportedAssetPaths prefixes <link>, <script>, and CSS url() references with basePath', async () => {
+  const { rewriteExportedAssetPaths } = await import('./github-deploy');
+  const sampleHtml = `<!DOCTYPE html><html><head><link rel="preload" href="/cratedig-yt/_next/static/media/font.woff2" as="font"/><link rel="stylesheet" href="/_next/static/css/23bf6fd837b395b3.css" data-precedence="next"/><script src="/_next/static/chunks/main-app.js" async=""></script></head></html>`;
+  const rewritten = rewriteExportedAssetPaths(sampleHtml, '/music-dna-search');
+
+  assert.ok(
+    rewritten.includes('href="/music-dna-search/_next/static/media/font.woff2"'),
+    'Rewrites legacy /cratedig-yt/_next/ preload link to /music-dna-search/_next/'
+  );
+  assert.ok(
+    rewritten.includes('href="/music-dna-search/_next/static/css/23bf6fd837b395b3.css"'),
+    'Prefixes stylesheet link with /music-dna-search'
+  );
+  assert.ok(
+    rewritten.includes('src="/music-dna-search/_next/static/chunks/main-app.js"'),
+    'Prefixes script src with /music-dna-search'
+  );
+  assert.ok(
+    !rewritten.includes('/music-dna-search/music-dna-search/_next/'),
+    'Does not double-prefix already prefixed paths'
+  );
+});
+
+

@@ -69,7 +69,7 @@ export default function GitHubPagesDeployer({
   onImportTasteBackup,
 }: GitHubPagesDeployerProps) {
   const [remoteUrl, setRemoteUrl] = useState<string>(
-    'https://github.com/mohammadrezajafari/cratedig-yt.git'
+    'https://github.com/v4g4b0nd-0x76/music-dna-search.git'
   );
   const [branch, setBranch] = useState<string>('main');
   const [nodeVersion, setNodeVersion] = useState<'20' | '22'>('20');
@@ -368,16 +368,16 @@ export default function GitHubPagesDeployer({
           <button
             type="button"
             onClick={() =>
-              setRemoteUrl('https://github.com/mohammadrezajafari/cratedig-yt.git')
+              setRemoteUrl('https://github.com/v4g4b0nd-0x76/music-dna-search.git')
             }
             className="px-2.5 py-1.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 rounded-lg text-xs font-medium transition-colors cursor-pointer"
           >
-            Preset: HTTPS Repo
+            Preset: HTTPS Repo (music-dna-search)
           </button>
           <button
             type="button"
             onClick={() =>
-              setRemoteUrl('git@github.com:mohammadrezajafari/cratedig-yt.git')
+              setRemoteUrl('git@github.com:v4g4b0nd-0x76/music-dna-search.git')
             }
             className="px-2.5 py-1.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 rounded-lg text-xs font-medium transition-colors cursor-pointer"
           >
@@ -387,7 +387,7 @@ export default function GitHubPagesDeployer({
             type="button"
             onClick={() =>
               setRemoteUrl(
-                'https://github.com/mohammadrezajafari/mohammadrezajafari.github.io.git'
+                'https://github.com/v4g4b0nd-0x76/v4g4b0nd-0x76.github.io.git'
               )
             }
             className="px-2.5 py-1.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 rounded-lg text-xs font-medium transition-colors cursor-pointer"

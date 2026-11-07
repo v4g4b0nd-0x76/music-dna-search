@@ -17,7 +17,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-const DEFAULT_REMOTE_URL = 'https://github.com/mohammadrezajafari/cratedig-yt.git';
+const DEFAULT_REMOTE_URL = 'https://github.com/v4g4b0nd-0x76/music-dna-search.git';
 
 async function runGit(args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   try {

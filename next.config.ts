@@ -1,13 +1,38 @@
 import type {NextConfig} from 'next';
 
 const isGitHubPages = process.env.GITHUB_PAGES === 'true';
-const rawBasePath = (process.env.NEXT_PUBLIC_BASE_PATH || '').trim();
-const normalizedBasePath =
-  rawBasePath && rawBasePath !== '/'
-    ? rawBasePath.startsWith('/')
-      ? rawBasePath.replace(/\/+$/, '')
-      : `/${rawBasePath.replace(/\/+$/, '')}`
-    : '';
+const DEFAULT_PAGES_BASE_PATH = '/music-dna-search';
+
+function resolveGitHubPagesBasePath(): string {
+  if (!isGitHubPages) return '';
+
+  // 1. Explicit output from actions/configure-pages@v5 if non-empty
+  const pagesOutputBase = (process.env.PAGES_BASE_PATH || '').trim();
+  if (pagesOutputBase) {
+    return pagesOutputBase === '/'
+      ? ''
+      : `/${pagesOutputBase.replace(/^\/+|\/+$/g, '')}`;
+  }
+
+  // 2. Auto-detect from GitHub Actions built-in GITHUB_REPOSITORY ("owner/repo", e.g. "v4g4b0nd-0x76/music-dna-search")
+  const ghRepo = (process.env.GITHUB_REPOSITORY || '').trim();
+  if (ghRepo.includes('/')) {
+    const [owner, repo] = ghRepo.split('/');
+    if (owner && repo) {
+      if (repo.toLowerCase() === `${owner.toLowerCase()}.github.io`) {
+        return '';
+      }
+      return `/${repo}`;
+    }
+  }
+
+  // 3. Fallback to NEXT_PUBLIC_BASE_PATH or default '/music-dna-search' for exported static sites
+  const rawBasePath = (process.env.NEXT_PUBLIC_BASE_PATH || DEFAULT_PAGES_BASE_PATH).trim();
+  if (!rawBasePath || rawBasePath === '/') return '';
+  return `/${rawBasePath.replace(/^\/+|\/+$/g, '')}`;
+}
+
+const normalizedBasePath = resolveGitHubPagesBasePath();
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -33,7 +58,7 @@ const nextConfig: NextConfig = {
   ...(isGitHubPages && normalizedBasePath
     ? {
         basePath: normalizedBasePath,
-        assetPrefix: `${normalizedBasePath}/`,
+        assetPrefix: normalizedBasePath,
       }
     : {}),
   transpilePackages: ['motion'],
@@ -50,4 +75,5 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+
 

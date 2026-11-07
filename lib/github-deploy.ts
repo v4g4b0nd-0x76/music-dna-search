@@ -215,6 +215,7 @@ jobs:
           node-version: "${nodeVer}"
 
       - name: Configure GitHub Pages
+        id: pages
         uses: actions/configure-pages@v5
         continue-on-error: true
 
@@ -223,8 +224,9 @@ jobs:
 
       - name: Build static Next.js bundle for GitHub Pages
         env:
-          NEXT_PUBLIC_BASE_PATH: "${basePath}"
           GITHUB_PAGES: "true"
+          PAGES_BASE_PATH: \${{ steps.pages.outputs.base_path }}
+          NEXT_PUBLIC_BASE_PATH: "${basePath}"
         run: ${buildCmd}
 
       - name: Ensure .nojekyll exists in static output
@@ -253,18 +255,35 @@ jobs:
  */
 export function generateNextConfigForPages(config: GitHubDeployConfig): string {
   const parsed = parseGitHubRemoteUrl(config.remoteUrl);
-  const defaultBasePath = parsed.isValid ? parsed.basePath : '/music-crate';
+  const defaultBasePath = parsed.isValid ? parsed.basePath : '/music-dna-search';
 
   return `import type { NextConfig } from 'next';
 
 const isGitHubPages = process.env.GITHUB_PAGES === 'true';
-const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? (isGitHubPages ? '${defaultBasePath}' : '');
+
+function resolveGitHubPagesBasePath(): string {
+  if (!isGitHubPages) return '';
+  const pagesOutputBase = (process.env.PAGES_BASE_PATH || '').trim();
+  if (pagesOutputBase) {
+    return pagesOutputBase === '/' ? '' : \`/\${pagesOutputBase.replace(/^\\/+|\\/+$/g, '')}\`;
+  }
+  const ghRepo = (process.env.GITHUB_REPOSITORY || '').trim();
+  if (ghRepo.includes('/')) {
+    const [owner, repo] = ghRepo.split('/');
+    if (owner && repo) {
+      return repo.toLowerCase() === \`\${owner.toLowerCase()}.github.io\` ? '' : \`/\${repo}\`;
+    }
+  }
+  return process.env.NEXT_PUBLIC_BASE_PATH || '${defaultBasePath}';
+}
+
+const basePath = resolveGitHubPagesBasePath();
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   output: isGitHubPages ? 'export' : 'standalone',
   basePath: basePath || undefined,
-  assetPrefix: basePath ? \`\${basePath}/\` : undefined,
+  assetPrefix: basePath || undefined,
   images: {
     unoptimized: true,
     remotePatterns: [
@@ -1099,4 +1118,37 @@ export function evaluateRepoAndBranchDiagnostics(
     recommendedFixes,
   };
 }
+
+/**
+ * Rewrites `<link>`, `<script>`, and CSS `url(...)` asset references in exported static HTML/CSS/JS
+ * so that unprefixed `/_next/...` or stale `/cratedig-yt/_next/...` paths always use the configured `basePath` prefix.
+ */
+export function rewriteExportedAssetPaths(content: string, basePath = '/music-dna-search'): string {
+  const raw = String(content || '');
+  const trimmedBase = (basePath || '').trim();
+  if (!trimmedBase || trimmedBase === '/') {
+    return raw;
+  }
+
+  const cleanBase = `/${trimmedBase.replace(/^\/+|\/+$/g, '')}`;
+  let updated = raw;
+
+  // 1. Replace any legacy /cratedig-yt/_next/ prefix with cleanBase/_next/
+  updated = updated.replace(/\/cratedig-yt\/_next\//g, `${cleanBase}/_next/`);
+
+  // 2. Prefix any unprefixed href="/_next/, src="/_next/, content="/_next/, or url(/_next/
+  updated = updated.replace(
+    /(href=|src=|content=|url\()(["']?)\/_next\//g,
+    `$1$2${cleanBase}/_next/`
+  );
+  updated = updated.replace(/(["'\\])\/_next\//g, `$1${cleanBase}/_next/`);
+
+  // 3. Deduplicate any accidental double prefixing (e.g. /music-dna-search/music-dna-search/_next/)
+  const escapedBase = cleanBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const doublePrefixRegex = new RegExp(`${escapedBase}${escapedBase}\\/_next\\/`, 'g');
+  updated = updated.replace(doublePrefixRegex, `${cleanBase}/_next/`);
+
+  return updated;
+}
+
 

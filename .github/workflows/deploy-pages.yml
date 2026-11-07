@@ -30,6 +30,7 @@ jobs:
           node-version: "20"
 
       - name: Configure GitHub Pages
+        id: pages
         uses: actions/configure-pages@v5
         continue-on-error: true
 
@@ -38,8 +39,9 @@ jobs:
 
       - name: Build static Next.js bundle for GitHub Pages
         env:
-          NEXT_PUBLIC_BASE_PATH: "/cratedig-yt"
           GITHUB_PAGES: "true"
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          NEXT_PUBLIC_BASE_PATH: "/music-dna-search"
         run: npm run build:pages
 
       - name: Ensure .nojekyll exists in static output
