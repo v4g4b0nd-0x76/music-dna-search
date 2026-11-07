@@ -28,6 +28,7 @@ import {
   SuggestedCrateTrack,
   TasteContextSummary,
   resolveGeminiModelForTier,
+  requestGeminiCrateAssistant,
 } from '@/lib/gemini-crate-assistant';
 import { MusicTrack } from '@/lib/music-data';
 import { useFavorites } from '@/context/FavoritesContext';
@@ -187,23 +188,14 @@ export default function GeminiCrateChatbot({
     };
 
     try {
-      const response = await fetch('/api/gemini/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: trimmed,
-          role: activeRole,
-          tier: activeTier,
-          enableSearchGrounding: activeGrounding,
-          history: historyForApi,
-          tasteContext,
-        }),
+      const data = await requestGeminiCrateAssistant({
+        message: trimmed,
+        role: activeRole,
+        tier: activeTier,
+        enableSearchGrounding: activeGrounding,
+        history: historyForApi,
+        tasteContext,
       });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to get response from Gemini assistant.');
-      }
 
       msgCounterRef.current += 1;
       const modelMessage: CrateChatMessage = {

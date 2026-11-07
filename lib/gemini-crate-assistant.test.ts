@@ -7,6 +7,7 @@ import {
   normalizeChatHistoryForSdk,
   extractSuggestedTracksFromMarkdown,
   buildGroundedFallbackResponse,
+  parseJsonOrDetectHtmlFallback,
 } from './gemini-crate-assistant';
 
 test('resolveGeminiModelForTier selects the right model for fast, general, complex, and grounded modes', () => {
@@ -125,3 +126,61 @@ test('buildGroundedFallbackResponse returns grounded sources and structured trac
   assert.ok(res.searchQueries.length >= 1);
   assert.ok(res.suggestedTracks.length >= 2);
 });
+
+test('parseJsonOrDetectHtmlFallback safely handles static host HTML 404/405 responses without throwing Unexpected token <', () => {
+  const html405 = '<html> <head><title>405 Not Allowed</title></head><body><center><h1>405 Not Allowed</h1></center></body></html>';
+  const parsedHtml = parseJsonOrDetectHtmlFallback<{ text: string }>(html405);
+  assert.equal(parsedHtml.isJson, false);
+  if (!parsedHtml.isJson) {
+    assert.equal(parsedHtml.isHtml, true);
+    assert.match(parsedHtml.preview, /^<html> <head>/);
+  }
+
+  const validJson = JSON.stringify({ text: 'Grounded response' });
+  const parsedJson = parseJsonOrDetectHtmlFallback<{ text: string }>(validJson);
+  assert.equal(parsedJson.isJson, true);
+  if (parsedJson.isJson) {
+    assert.equal(parsedJson.data.text, 'Grounded response');
+  }
+});
+
+test('buildGroundedFallbackResponse handles TASTE REGRESSION MODEL & FEW-SHOT SAMPLES prompt with 5 scored YouTube tracks and yt-dlp commands', () => {
+  const regressionPrompt = `### TASTE REGRESSION MODEL & FEW-SHOT SAMPLES
+Intercept (β₀): 5 | Fit R²: 0 | MAE: 0
+Target Sonic Center: ~120 BPM, Energy ~70/100
+Regularization (λ): 0.25 | Exploration (τ): 0.7
+
+#### Training Samples (Input X -> Target Rating y/10):
+(No training samples added yet — add your sample songs or YouTube links above)
+
+#### Fitted Feature Weights (β Coefficients):
+- Positive Drivers (Increase ŷ): None specified yet
+- Negative Repellers (Decrease ŷ): None (no low-rated negative samples provided)
+- User-Added Tags: None added by user
+
+### TASK
+1. Use Google Search / YouTube grounding to find **5 real songs available on YouTube** that maximize the predicted regression score ŷ (aim for ŷ >= 8.5/10).
+2. For each song, show:
+   - **Artist - Title** (with estimated BPM, release year, and why it satisfies the positive β weights)
+   - **Predicted Score ŷ / 10** based on the regression equation
+   - **YouTube Search / Watch Link** and a working \`yt-dlp\` download command.`;
+
+  const res = buildGroundedFallbackResponse(
+    regressionPrompt,
+    'crate-digger',
+    {
+      favoriteArtists: ['Bicep', 'Four Tet'],
+      favoriteTags: ['breakbeat', 'analog-synth'],
+      favoriteCategories: ['Electronic'],
+    },
+    true
+  );
+
+  // Must generate the 5-track Taste Regression Discovery Report instead of echoing the prompt into a single yt-dlp command
+  assert.match(res.text, /Taste Regression Discovery Report/i);
+  assert.match(res.text, /Predicted Score ŷ/i);
+  assert.match(res.text, /yt-dlp --ignore-config --no-warnings -x --audio-format mp3/);
+  assert.equal(res.suggestedTracks.length, 5);
+  assert.ok(res.sources.length >= 2);
+});
+

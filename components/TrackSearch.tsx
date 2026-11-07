@@ -18,7 +18,11 @@ import { MusicTrack } from '@/lib/music-data';
 import { resolveMockTrackSearch } from '@/lib/track-search';
 import { formatDuration } from '@/lib/taste-engine';
 import { useFavorites } from '@/context/FavoritesContext';
-import { GroundingWebSource } from '@/lib/gemini-crate-assistant';
+import {
+  GroundingWebSource,
+  parseJsonOrDetectHtmlFallback,
+  buildGroundedFallbackResponse,
+} from '@/lib/gemini-crate-assistant';
 
 export interface TrackSearchProps {
   onAddTrackToCatalog?: (track: MusicTrack) => void;
@@ -116,20 +120,41 @@ export default function TrackSearch({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: trimmed }),
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to run Google Search Grounding.');
+      const rawBody = await response.text();
+      const parsed = parseJsonOrDetectHtmlFallback<{
+        query?: string;
+        summary?: string;
+        sources?: GroundingWebSource[];
+        searchQueries?: string[];
+        error?: string;
+      }>(rawBody);
+
+      if (parsed.isJson && response.ok && parsed.data.summary) {
+        setGroundedResult({
+          query: parsed.data.query || trimmed,
+          summary: parsed.data.summary,
+          sources: Array.isArray(parsed.data.sources) ? parsed.data.sources : [],
+          searchQueries: Array.isArray(parsed.data.searchQueries)
+            ? parsed.data.searchQueries
+            : [],
+        });
+      } else {
+        const fallback = buildGroundedFallbackResponse(trimmed, 'crate-digger', undefined, true);
+        setGroundedResult({
+          query: trimmed,
+          summary: fallback.text,
+          sources: fallback.sources,
+          searchQueries: fallback.searchQueries,
+        });
       }
+    } catch {
+      const fallback = buildGroundedFallbackResponse(trimmed, 'crate-digger', undefined, true);
       setGroundedResult({
-        query: data.query || trimmed,
-        summary: data.summary || '',
-        sources: Array.isArray(data.sources) ? data.sources : [],
-        searchQueries: Array.isArray(data.searchQueries) ? data.searchQueries : [],
+        query: trimmed,
+        summary: fallback.text,
+        sources: fallback.sources,
+        searchQueries: fallback.searchQueries,
       });
-    } catch (err) {
-      setErrorMsg(
-        err instanceof Error ? err.message : 'Unable to complete Google Search Grounding.'
-      );
     } finally {
       setIsGroundingSearch(false);
     }

@@ -32,6 +32,7 @@ import {
 import {
   SuggestedCrateTrack,
   GroundingWebSource,
+  requestGeminiCrateAssistant,
 } from '@/lib/gemini-crate-assistant';
 import { useFavorites } from '@/context/FavoritesContext';
 
@@ -280,47 +281,35 @@ export default function TasteRegressionLab({
     const fullMessage = `${systemInstructionText}\n\n${compiledPrompt}`.trim();
 
     try {
-      const response = await fetch('/api/gemini/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: fullMessage,
-          prompt: fullMessage,
-          role: 'crate-digger',
-          tier: 'general',
-          enableSearchGrounding: true,
-          history: [],
-          tasteContext: {
-            favoriteArtists: [
-              ...favoriteArtists,
-              ...regressionModel.positiveDrivers
-                .filter((d) => d.type === 'artist')
-                .map((d) => d.feature),
-            ],
-            favoriteTags: [
-              ...favoriteTags,
-              ...regressionModel.positiveDrivers
-                .filter((d) => d.type === 'tag')
-                .map((d) => d.feature.replace(/^#+/, '')),
-            ],
-            favoriteCategories,
-            activePlaylistName: 'Regression Training Lab',
-            activePlaylistTracks: samples.map((s) => ({
-              artist: s.artist,
-              title: s.title,
-              bpm: s.bpm,
-              category: `Rating ${s.rating}/10`,
-            })),
-          },
-        }),
+      const data = await requestGeminiCrateAssistant({
+        message: fullMessage,
+        role: 'crate-digger',
+        tier: 'general',
+        enableSearchGrounding: true,
+        history: [],
+        tasteContext: {
+          favoriteArtists: [
+            ...favoriteArtists,
+            ...regressionModel.positiveDrivers
+              .filter((d) => d.type === 'artist')
+              .map((d) => d.feature),
+          ],
+          favoriteTags: [
+            ...favoriteTags,
+            ...regressionModel.positiveDrivers
+              .filter((d) => d.type === 'tag')
+              .map((d) => d.feature.replace(/^#+/, '')),
+          ],
+          favoriteCategories,
+          activePlaylistName: 'Regression Training Lab',
+          activePlaylistTracks: samples.map((s) => ({
+            artist: s.artist,
+            title: s.title,
+            bpm: s.bpm,
+            category: `Rating ${s.rating}/10`,
+          })),
+        },
       });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(
-          data.error || 'Failed to run Gemini Regression Discovery.'
-        );
-      }
 
       setGeminiResponse({
         reply: data.text || data.reply || '',
