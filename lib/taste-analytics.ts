@@ -287,3 +287,233 @@ export function computeTasteAnalytics(
     },
   };
 }
+
+export interface PlaylistDurationBucket {
+  bucket: string;
+  shortLabel: string;
+  minSec: number;
+  maxSec: number;
+  count: number;
+  sharePct: number;
+  totalSec: number;
+  trackTitles: string[];
+}
+
+export interface PlaylistTrackDurationPoint {
+  id: string;
+  index: number;
+  title: string;
+  artist: string;
+  shortName: string;
+  durationSec: number;
+  durationMin: number;
+  durationFormatted: string;
+  genre: string;
+  bpm: number;
+}
+
+export interface PlaylistGenreBucket {
+  genre: string;
+  count: number;
+  sharePct: number;
+  totalDurationSec: number;
+  totalDurationFormatted: string;
+  avgDurationSec: number;
+  avgDurationFormatted: string;
+  avgBpm: number;
+  color: string;
+}
+
+export interface PlaylistDistributionAnalytics {
+  durationBuckets: PlaylistDurationBucket[];
+  trackDurationSeries: PlaylistTrackDurationPoint[];
+  genreDistribution: PlaylistGenreBucket[];
+  summary: {
+    totalTracks: number;
+    totalDurationSec: number;
+    totalDurationFormatted: string;
+    avgDurationSec: number;
+    avgDurationFormatted: string;
+    shortestTrack: {
+      title: string;
+      artist: string;
+      durationSec: number;
+      durationFormatted: string;
+    } | null;
+    longestTrack: {
+      title: string;
+      artist: string;
+      durationSec: number;
+      durationFormatted: string;
+    } | null;
+    dominantGenre: string;
+    uniqueGenres: number;
+  };
+}
+
+const GENRE_CHART_COLORS = [
+  '#fbbf24', // amber-400
+  '#34d399', // emerald-400
+  '#38bdf8', // sky-400
+  '#a78bfa', // violet-400
+  '#fb7185', // rose-400
+  '#f97316', // orange-500
+  '#2dd4bf', // teal-400
+];
+
+function formatSecToMmSs(sec: number): string {
+  const safe = Math.max(0, Math.round(sec));
+  const mins = Math.floor(safe / 60);
+  const rem = safe % 60;
+  return `${mins}:${String(rem).padStart(2, '0')}`;
+}
+
+/**
+ * Computes chart-ready distributions of song durations (both histogram buckets and per-track sequence)
+ * and genres/categories for the currently generated playlist.
+ */
+export function computePlaylistDistribution(
+  playlistTracks: MusicTrack[]
+): PlaylistDistributionAnalytics {
+  const bucketDefs: {
+    bucket: string;
+    shortLabel: string;
+    minSec: number;
+    maxSec: number;
+  }[] = [
+    { bucket: '< 3 min (Short)', shortLabel: '< 3m', minSec: 0, maxSec: 179 },
+    { bucket: '3–4 min (Standard)', shortLabel: '3–4m', minSec: 180, maxSec: 239 },
+    { bucket: '4–5 min (Extended)', shortLabel: '4–5m', minSec: 240, maxSec: 299 },
+    { bucket: '5–6 min (Club Mix)', shortLabel: '5–6m', minSec: 300, maxSec: 359 },
+    { bucket: '6+ min (Long-Form)', shortLabel: '6m+', minSec: 360, maxSec: Infinity },
+  ];
+
+  const totalTracks = playlistTracks.length;
+
+  const durationBuckets: PlaylistDurationBucket[] = bucketDefs.map((def) => {
+    const matching = playlistTracks.filter((t) => {
+      const d = Math.max(0, t.durationSec || 0);
+      return d >= def.minSec && d <= def.maxSec;
+    });
+    const totalSec = matching.reduce((sum, t) => sum + (t.durationSec || 0), 0);
+    return {
+      bucket: def.bucket,
+      shortLabel: def.shortLabel,
+      minSec: def.minSec,
+      maxSec: def.maxSec,
+      count: matching.length,
+      sharePct: totalTracks > 0 ? Math.round((matching.length / totalTracks) * 100) : 0,
+      totalSec,
+      trackTitles: matching.map((t) => `${t.artist} - ${t.title}`),
+    };
+  });
+
+  const trackDurationSeries: PlaylistTrackDurationPoint[] = playlistTracks.map(
+    (t, idx) => {
+      const durationSec = Math.max(0, t.durationSec || 0);
+      const rawLabel = `${t.artist} — ${t.title}`;
+      const shortName =
+        rawLabel.length > 18 ? `${rawLabel.slice(0, 17)}…` : rawLabel;
+      return {
+        id: t.id,
+        index: idx + 1,
+        title: t.title,
+        artist: t.artist,
+        shortName,
+        durationSec,
+        durationMin: Number((durationSec / 60).toFixed(2)),
+        durationFormatted: formatSecToMmSs(durationSec),
+        genre: (t.category || 'Uncategorized').trim() || 'Uncategorized',
+        bpm: t.bpm || 120,
+      };
+    }
+  );
+
+  const genreMap = new Map<
+    string,
+    { count: number; totalDurationSec: number; bpmSum: number }
+  >();
+
+  for (const t of playlistTracks) {
+    const genre = (t.category || 'Uncategorized').trim() || 'Uncategorized';
+    const curr = genreMap.get(genre) || {
+      count: 0,
+      totalDurationSec: 0,
+      bpmSum: 0,
+    };
+    curr.count += 1;
+    curr.totalDurationSec += Math.max(0, t.durationSec || 0);
+    curr.bpmSum += t.bpm || 120;
+    genreMap.set(genre, curr);
+  }
+
+  const genreDistribution: PlaylistGenreBucket[] = Array.from(genreMap.entries())
+    .sort(
+      (a, b) =>
+        b[1].count - a[1].count ||
+        b[1].totalDurationSec - a[1].totalDurationSec ||
+        a[0].localeCompare(b[0])
+    )
+    .map(([genre, stats], idx) => {
+      const avgDurationSec =
+        stats.count > 0 ? Math.round(stats.totalDurationSec / stats.count) : 0;
+      const avgBpm = stats.count > 0 ? Math.round(stats.bpmSum / stats.count) : 120;
+      return {
+        genre,
+        count: stats.count,
+        sharePct:
+          totalTracks > 0 ? Math.round((stats.count / totalTracks) * 100) : 0,
+        totalDurationSec: stats.totalDurationSec,
+        totalDurationFormatted: formatSecToMmSs(stats.totalDurationSec),
+        avgDurationSec,
+        avgDurationFormatted: formatSecToMmSs(avgDurationSec),
+        avgBpm,
+        color: GENRE_CHART_COLORS[idx % GENRE_CHART_COLORS.length],
+      };
+    });
+
+  const totalDurationSec = playlistTracks.reduce(
+    (sum, t) => sum + Math.max(0, t.durationSec || 0),
+    0
+  );
+  const avgDurationSec =
+    totalTracks > 0 ? Math.round(totalDurationSec / totalTracks) : 0;
+
+  const sortedByDuration = [...playlistTracks].sort(
+    (a, b) => (a.durationSec || 0) - (b.durationSec || 0)
+  );
+  const shortest = sortedByDuration[0];
+  const longest = sortedByDuration[sortedByDuration.length - 1];
+
+  return {
+    durationBuckets,
+    trackDurationSeries,
+    genreDistribution,
+    summary: {
+      totalTracks,
+      totalDurationSec,
+      totalDurationFormatted: formatSecToMmSs(totalDurationSec),
+      avgDurationSec,
+      avgDurationFormatted: formatSecToMmSs(avgDurationSec),
+      shortestTrack: shortest
+        ? {
+            title: shortest.title,
+            artist: shortest.artist,
+            durationSec: shortest.durationSec,
+            durationFormatted: formatSecToMmSs(shortest.durationSec),
+          }
+        : null,
+      longestTrack: longest
+        ? {
+            title: longest.title,
+            artist: longest.artist,
+            durationSec: longest.durationSec,
+            durationFormatted: formatSecToMmSs(longest.durationSec),
+          }
+        : null,
+      dominantGenre: genreDistribution[0]?.genre || 'None',
+      uniqueGenres: genreDistribution.length,
+    },
+  };
+}
+

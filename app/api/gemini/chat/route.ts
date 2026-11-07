@@ -15,7 +15,13 @@ import {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const message: string = typeof body.message === 'string' ? body.message.trim() : '';
+    const rawMsg =
+      typeof body.message === 'string' && body.message.trim()
+        ? body.message.trim()
+        : typeof body.prompt === 'string' && body.prompt.trim()
+        ? body.prompt.trim()
+        : '';
+    const message: string = rawMsg;
     const role: GeminiCrateRole = body.role || 'crate-digger';
     const tier: GeminiTaskTier = body.tier || 'general';
     const enableSearchGrounding: boolean = Boolean(body.enableSearchGrounding);
@@ -77,6 +83,7 @@ export async function POST(req: NextRequest) {
         if (text.trim()) {
           return NextResponse.json({
             text,
+            reply: text,
             modelUsed: targetModel,
             grounded: enableSearchGrounding,
             sources,
@@ -97,6 +104,7 @@ export async function POST(req: NextRequest) {
             if (text.trim()) {
               return NextResponse.json({
                 text,
+                reply: text,
                 modelUsed: 'gemini-3.8-flash',
                 grounded: enableSearchGrounding,
                 sources,
@@ -122,6 +130,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       text: fallback.text,
+      reply: fallback.text,
       modelUsed: targetModel,
       grounded: enableSearchGrounding,
       sources: fallback.sources,

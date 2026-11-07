@@ -129,6 +129,7 @@ export default function GeminiCrateChatbot({
   ]);
 
   const threadEndRef = useRef<HTMLDivElement | null>(null);
+  const msgCounterRef = useRef<number>(0);
 
   useEffect(() => {
     if (messages.length > 1) {
@@ -156,11 +157,12 @@ export default function GeminiCrateChatbot({
     if (typeof overrideGrounding === 'boolean') setEnableSearchGrounding(overrideGrounding);
 
     setErrorMsg(null);
+    msgCounterRef.current += 1;
     const userMessage: CrateChatMessage = {
-      id: `user-${Date.now()}`,
+      id: `user-${msgCounterRef.current}`,
       role: 'user',
       text: trimmed,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: 'now',
     };
 
     const historyForApi = messages
@@ -203,11 +205,12 @@ export default function GeminiCrateChatbot({
         throw new Error(data.error || 'Failed to get response from Gemini assistant.');
       }
 
+      msgCounterRef.current += 1;
       const modelMessage: CrateChatMessage = {
-        id: `model-${Date.now()}`,
+        id: `model-${msgCounterRef.current}`,
         role: 'model',
         text: data.text || 'No response generated.',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestamp: 'just now',
         modelUsed:
           data.modelUsed || resolveGeminiModelForTier(activeTier, activeGrounding),
         grounded: Boolean(data.grounded),

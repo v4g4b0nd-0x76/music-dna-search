@@ -43,7 +43,8 @@ export default function TasteAnalytics({
   const [isMounted, setIsMounted] = useState<boolean>(false);
 
   useEffect(() => {
-    setIsMounted(true);
+    const id = window.requestAnimationFrame(() => setIsMounted(true));
+    return () => window.cancelAnimationFrame(id);
   }, []);
 
   const analytics = useMemo(() => {

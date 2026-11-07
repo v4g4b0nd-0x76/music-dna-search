@@ -9,15 +9,15 @@ import {
   Sparkles,
   Copy,
   Check,
-  Play,
   Loader2,
   ExternalLink,
-  Tag,
   TrendingUp,
   TrendingDown,
-  Terminal,
   FileCode2,
   Globe,
+  ChevronDown,
+  ChevronUp,
+  Download,
 } from 'lucide-react';
 import { MusicTrack } from '@/lib/music-data';
 import {
@@ -40,6 +40,12 @@ export interface TasteRegressionLabProps {
   activePlaylistTracks: MusicTrack[];
   onAddDiscoveredTrackToCatalog: (track: MusicTrack) => void;
   onAddTrackToActivePlaylist: (trackId: string) => void;
+  canDirectDownload?: boolean;
+  onDirectDownloadTrack?: (track: {
+    artist: string;
+    title: string;
+    youtubeUrl?: string;
+  }) => void;
 }
 
 export default function TasteRegressionLab({
@@ -47,6 +53,8 @@ export default function TasteRegressionLab({
   activePlaylistTracks,
   onAddDiscoveredTrackToCatalog,
   onAddTrackToActivePlaylist,
+  canDirectDownload = false,
+  onDirectDownloadTrack,
 }: TasteRegressionLabProps) {
   const {
     favoriteArtists,
@@ -84,6 +92,12 @@ export default function TasteRegressionLab({
     PROMPT_ENGINEERING_PRESETS[0].systemInstruction
   );
   const [extraConstraints, setExtraConstraints] = useState<string>('');
+
+  // Toggleable Additional Tools (Collapsed by default so UI is clean and not crowded)
+  const [showRegressionWeightsTool, setShowRegressionWeightsTool] =
+    useState<boolean>(false);
+  const [showPromptInspectorTool, setShowPromptInspectorTool] =
+    useState<boolean>(false);
   const [showTemplateEditor, setShowTemplateEditor] = useState<boolean>(false);
   const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
 
@@ -96,7 +110,9 @@ export default function TasteRegressionLab({
     sources: GroundingWebSource[];
     suggestedTracks: SuggestedCrateTrack[];
   } | null>(null);
-  const [savedTrackFeedback, setSavedTrackFeedback] = useState<string | null>(null);
+  const [savedTrackFeedback, setSavedTrackFeedback] = useState<string | null>(
+    null
+  );
 
   // Fit Ridge Regression Model in real time
   const regressionModel = useMemo(
@@ -144,7 +160,9 @@ export default function TasteRegressionLab({
 
     const parsedTags = newTagsInput
       .split(/[,;|/]+/)
-      .map((t) => t.trim().replace(/^#+/, '').toLowerCase().replace(/\s+/g, '-'))
+      .map((t) =>
+        t.trim().replace(/^#+/, '').toLowerCase().replace(/\s+/g, '-')
+      )
       .filter(Boolean);
 
     const newSample: TasteTrainingSample = {
@@ -153,7 +171,9 @@ export default function TasteRegressionLab({
       title,
       youtubeUrl:
         newYoutubeUrl.trim() ||
-        `https://www.youtube.com/results?search_query=${encodeURIComponent(`${artist} - ${title}`)}`,
+        `https://www.youtube.com/results?search_query=${encodeURIComponent(
+          `${artist} - ${title}`
+        )}`,
       tags: Array.from(new Set(parsedTags)),
       category: 'User Sample',
       bpm: Number(newBpm) || 120,
@@ -227,7 +247,10 @@ export default function TasteRegressionLab({
     setRowTagInputs((prev) => ({ ...prev, [sampleId]: '' }));
   };
 
-  const handleRemoveTagFromSample = (sampleId: string, tagToRemove: string) => {
+  const handleRemoveTagFromSample = (
+    sampleId: string,
+    tagToRemove: string
+  ) => {
     setSamples((prev) =>
       prev.map((s) =>
         s.id === sampleId
@@ -254,12 +277,15 @@ export default function TasteRegressionLab({
     setIsRunningGemini(true);
     setGeminiError(null);
 
+    const fullMessage = `${systemInstructionText}\n\n${compiledPrompt}`.trim();
+
     try {
       const response = await fetch('/api/gemini/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: `${systemInstructionText}\n\n${compiledPrompt}`,
+          message: fullMessage,
+          prompt: fullMessage,
           role: 'crate-digger',
           tier: 'general',
           enableSearchGrounding: true,
@@ -291,11 +317,13 @@ export default function TasteRegressionLab({
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to run Gemini Regression Discovery.');
+        throw new Error(
+          data.error || 'Failed to run Gemini Regression Discovery.'
+        );
       }
 
       setGeminiResponse({
-        reply: data.reply || '',
+        reply: data.text || data.reply || '',
         modelUsed: data.modelUsed || 'gemini-3.8-flash',
         sources: Array.isArray(data.sources) ? data.sources : [],
         suggestedTracks: Array.isArray(data.suggestedTracks)
@@ -331,7 +359,9 @@ export default function TasteRegressionLab({
       id: cleanId,
       artist: suggested.artist,
       title: suggested.title,
-      album: suggested.year ? `YouTube Discovery (${suggested.year})` : 'YouTube Regression Discovery',
+      album: suggested.year
+        ? `YouTube Discovery (${suggested.year})`
+        : 'YouTube Regression Discovery',
       category: suggested.category || 'Uncategorized',
       tags: userDefinedTags,
       bpm: suggested.bpm || regressionModel.optimalBpm || 124,
@@ -378,24 +408,21 @@ export default function TasteRegressionLab({
   return (
     <section
       aria-label="Taste Regression Training and Gemini Prompt Engineering System"
-      className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-6"
+      className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl p-5 space-y-5"
     >
-      {/* Header */}
+      {/* Clean Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
         <div className="space-y-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="px-2.5 py-0.5 rounded-md bg-amber-400/15 text-amber-300 border border-amber-400/30 text-[11px] font-mono uppercase">
-              Taste Regression &amp; Prompt Engineering Lab
-            </span>
-            <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 text-[11px] font-mono">
-              y = β₀ + Σ βᵢxᵢ · YouTube Grounded
-            </span>
+          <div className="text-xs font-mono text-amber-400">
+            Taste Regression &amp; YouTube Discovery Prompt Lab · R² ={' '}
+            {regressionModel.rSquared} · Center = {regressionModel.optimalBpm}{' '}
+            BPM
           </div>
           <h2 className="text-base sm:text-lg font-display font-bold text-zinc-100">
-            Train Your Taste Regression Model &amp; Engineer Custom Gemini YouTube Prompts
+            Train Your Taste Model &amp; Run Custom Gemini YouTube Discovery
           </h2>
           <p className="text-xs text-zinc-400">
-            Feed your own sample songs with target ratings (<code className="font-mono text-amber-300">y = 0..10</code>) and your own custom <code className="font-mono text-amber-300">#tags</code>. The Ridge Regression solver learns positive &amp; negative feature weights (<code className="font-mono text-zinc-200">β</code>) and compiles a custom Gemini prompt to discover matching music on YouTube.
+            Add sample songs with target ratings (<code className="font-mono text-amber-300">y = 0..10</code>) and your own <code className="font-mono text-amber-300">#tags</code>, then run Gemini with YouTube Search Grounding.
           </p>
         </div>
 
@@ -405,25 +432,32 @@ export default function TasteRegressionLab({
             onClick={handleImportUserTracksAsSamples}
             className="px-3.5 py-2 bg-zinc-950 hover:bg-zinc-800 text-amber-300 border border-amber-400/40 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
-            + Import My Crate/Feed Tracks ({activePlaylistTracks.length || userTracks.length}) as Samples
+            + Import My Crate Tracks (
+            {activePlaylistTracks.length || userTracks.length}) as Samples
           </button>
         )}
       </div>
 
-      {/* STEP 1 OF LAB: Add Training Sample Form */}
+      {/* CORE PANEL 1: Add Training Sample Form & Sample Table */}
       <div className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-4 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <h3 className="text-xs font-mono uppercase tracking-wider text-amber-400 font-semibold">
-            1. Feed Training Sample (X → Target Affinity y/10)
+          <h3 className="text-xs font-semibold text-zinc-200">
+            1. Training Samples ({samples.length}) — Rate Songs 0 to 10
           </h3>
           <span className="text-[11px] text-zinc-400">
-            Tip: Add both tracks you love (y = 8–10) and tracks you dislike (y = 1–3) to train a sharper boundary.
+            Add songs you love (y = 8–10) and songs you dislike (y = 1–3)
           </span>
         </div>
 
-        <form onSubmit={handleAddSample} className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+        <form
+          onSubmit={handleAddSample}
+          className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end"
+        >
           <div className="sm:col-span-2 space-y-1">
-            <label htmlFor="reg-sample-artist" className="block text-[11px] text-zinc-400">
+            <label
+              htmlFor="reg-sample-artist"
+              className="block text-[11px] text-zinc-400"
+            >
               Artist *
             </label>
             <input
@@ -437,7 +471,10 @@ export default function TasteRegressionLab({
           </div>
 
           <div className="sm:col-span-3 space-y-1">
-            <label htmlFor="reg-sample-title" className="block text-[11px] text-zinc-400">
+            <label
+              htmlFor="reg-sample-title"
+              className="block text-[11px] text-zinc-400"
+            >
               Song Title *
             </label>
             <input
@@ -451,7 +488,10 @@ export default function TasteRegressionLab({
           </div>
 
           <div className="sm:col-span-2 space-y-1">
-            <label htmlFor="reg-sample-tags" className="block text-[11px] text-zinc-400">
+            <label
+              htmlFor="reg-sample-tags"
+              className="block text-[11px] text-zinc-400"
+            >
               Your Custom #Tags
             </label>
             <input
@@ -465,7 +505,10 @@ export default function TasteRegressionLab({
           </div>
 
           <div className="sm:col-span-2 space-y-1">
-            <label htmlFor="reg-sample-url" className="block text-[11px] text-zinc-400">
+            <label
+              htmlFor="reg-sample-url"
+              className="block text-[11px] text-zinc-400"
+            >
               YouTube URL (Optional)
             </label>
             <input
@@ -479,7 +522,10 @@ export default function TasteRegressionLab({
           </div>
 
           <div className="sm:col-span-1 space-y-1">
-            <label htmlFor="reg-sample-bpm" className="block text-[11px] text-zinc-400">
+            <label
+              htmlFor="reg-sample-bpm"
+              className="block text-[11px] text-zinc-400"
+            >
               BPM
             </label>
             <input
@@ -494,7 +540,10 @@ export default function TasteRegressionLab({
           </div>
 
           <div className="sm:col-span-1 space-y-1">
-            <label htmlFor="reg-sample-rating" className="block text-[11px] text-amber-300 font-mono">
+            <label
+              htmlFor="reg-sample-rating"
+              className="block text-[11px] text-amber-300 font-mono"
+            >
               y ({newRating}/10)
             </label>
             <input
@@ -522,9 +571,10 @@ export default function TasteRegressionLab({
 
         {/* Training Samples Table */}
         {samples.length === 0 ? (
-          <div className="border border-dashed border-zinc-800 rounded-lg p-6 text-center space-y-2">
+          <div className="border border-dashed border-zinc-800 rounded-lg p-4 text-center">
             <p className="text-xs text-zinc-400">
-              No training samples added yet. Add 2 or more songs above (with your own custom <code className="font-mono text-zinc-200">#tags</code> and target rating <code className="font-mono text-amber-300">y</code> from 0 to 10) to fit your regression model.
+              No training samples yet — add songs above or click{' '}
+              <strong>+ Import My Crate Tracks as Samples</strong>, or run Gemini directly with a custom constraint below.
             </p>
           </div>
         ) : (
@@ -533,35 +583,27 @@ export default function TasteRegressionLab({
               <thead>
                 <tr className="border-b border-zinc-800 text-[11px] text-zinc-400 font-mono">
                   <th className="py-2 px-2">Sample Track</th>
-                  <th className="py-2 px-2">User-Added #Tags (Only Yours)</th>
+                  <th className="py-2 px-2">User-Added #Tags</th>
                   <th className="py-2 px-2">BPM</th>
                   <th className="py-2 px-2">Target Rating (y)</th>
-                  <th className="py-2 px-2 text-right">Predicted (ŷ) / Residual</th>
+                  <th className="py-2 px-2 text-right">Predicted (ŷ)</th>
                   <th className="py-2 px-2 text-right">Remove</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-900">
                 {samples.map((s) => {
-                  const predObj = regressionModel.predictions.find((p) => p.sampleId === s.id);
+                  const predObj = regressionModel.predictions.find(
+                    (p) => p.sampleId === s.id
+                  );
                   return (
                     <tr key={s.id} className="hover:bg-zinc-900/50">
-                      <td className="py-2.5 px-2 align-middle">
+                      <td className="py-2 px-2 align-middle">
                         <div className="font-semibold text-zinc-100">
                           {s.artist} — {s.title}
                         </div>
-                        {s.youtubeUrl && (
-                          <a
-                            href={s.youtubeUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[11px] text-zinc-500 hover:text-amber-300 inline-flex items-center gap-1 font-mono"
-                          >
-                            YouTube <ExternalLink className="w-2.5 h-2.5" />
-                          </a>
-                        )}
                       </td>
 
-                      <td className="py-2.5 px-2 align-middle">
+                      <td className="py-2 px-2 align-middle">
                         <div className="flex items-center flex-wrap gap-1">
                           {s.tags.map((t) => (
                             <button
@@ -569,7 +611,6 @@ export default function TasteRegressionLab({
                               type="button"
                               onClick={() => handleRemoveTagFromSample(s.id, t)}
                               className="px-1.5 py-0.5 bg-zinc-900 hover:bg-rose-950/60 text-amber-300 hover:text-rose-300 border border-zinc-800 rounded text-[11px] font-mono cursor-pointer"
-                              title="Click to remove tag"
                             >
                               #{t} ×
                             </button>
@@ -605,11 +646,11 @@ export default function TasteRegressionLab({
                         </div>
                       </td>
 
-                      <td className="py-2.5 px-2 align-middle font-mono text-zinc-400">
+                      <td className="py-2 px-2 align-middle font-mono text-zinc-400">
                         {s.bpm}
                       </td>
 
-                      <td className="py-2.5 px-2 align-middle">
+                      <td className="py-2 px-2 align-middle">
                         <div className="flex items-center gap-2">
                           <input
                             type="range"
@@ -619,41 +660,24 @@ export default function TasteRegressionLab({
                             aria-label={`Target rating for ${s.title}`}
                             value={s.rating}
                             onChange={(e) =>
-                              handleUpdateSampleRating(s.id, Number(e.target.value))
+                              handleUpdateSampleRating(
+                                s.id,
+                                Number(e.target.value)
+                              )
                             }
-                            className="w-24 accent-amber-400 cursor-pointer"
+                            className="w-20 accent-amber-400 cursor-pointer"
                           />
-                          <span
-                            className={`font-mono font-semibold text-xs px-1.5 py-0.5 rounded ${
-                              s.rating >= 7
-                                ? 'bg-emerald-500/15 text-emerald-300'
-                                : s.rating <= 4
-                                ? 'bg-rose-500/15 text-rose-300'
-                                : 'bg-zinc-800 text-zinc-300'
-                            }`}
-                          >
+                          <span className="font-mono font-semibold text-xs text-amber-300">
                             {s.rating.toFixed(1)}
                           </span>
                         </div>
                       </td>
 
-                      <td className="py-2.5 px-2 align-middle text-right font-mono">
-                        {predObj ? (
-                          <span>
-                            <span className="text-amber-300">
-                              ŷ = {predObj.predictedRating.toFixed(2)}
-                            </span>{' '}
-                            <span className="text-zinc-500">
-                              (err {predObj.residual >= 0 ? '+' : ''}
-                              {predObj.residual.toFixed(2)})
-                            </span>
-                          </span>
-                        ) : (
-                          '—'
-                        )}
+                      <td className="py-2 px-2 align-middle text-right font-mono text-amber-300">
+                        {predObj ? `ŷ = ${predObj.predictedRating.toFixed(2)}` : '—'}
                       </td>
 
-                      <td className="py-2.5 px-2 align-middle text-right">
+                      <td className="py-2 px-2 align-middle text-right">
                         <button
                           type="button"
                           onClick={() => handleRemoveSample(s.id)}
@@ -672,291 +696,53 @@ export default function TasteRegressionLab({
         )}
       </div>
 
-      {/* STEP 2 OF LAB: Fitted Regression Coefficients & Hyperparameters */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Left: Learned Feature Weights β */}
-        <div className="lg:col-span-7 bg-zinc-950/90 border border-zinc-800 rounded-xl p-4 space-y-3">
-          <div className="flex items-center justify-between flex-wrap gap-2 border-b border-zinc-800 pb-2.5">
-            <span className="text-xs font-mono text-amber-400 uppercase font-semibold">
-              2. Fitted Regression Coefficients (β) &amp; Metrics
-            </span>
-            <div className="flex items-center gap-3 text-xs font-mono">
-              <span className="text-emerald-300">R² = {regressionModel.rSquared}</span>
-              <span className="text-zinc-400">MAE = {regressionModel.mae}</span>
-              <span className="text-amber-300">Center = {regressionModel.optimalBpm} BPM</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="bg-zinc-900/70 border border-zinc-800/80 rounded-lg p-3 space-y-2">
-              <div className="text-[11px] font-mono text-emerald-300 flex items-center gap-1">
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span>Positive Drivers (β &gt; 0)</span>
-              </div>
-              {regressionModel.positiveDrivers.length === 0 ? (
-                <p className="text-[11px] text-zinc-500">
-                  Add high-rated samples (y ≥ 7) with your tags to learn positive weights.
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {regressionModel.positiveDrivers.map((c) => (
-                    <span
-                      key={`${c.type}-${c.feature}`}
-                      className="px-2 py-0.5 rounded bg-emerald-950/50 border border-emerald-500/30 text-emerald-200 text-[11px] font-mono"
-                    >
-                      {c.feature} (+{c.weight})
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="bg-zinc-900/70 border border-zinc-800/80 rounded-lg p-3 space-y-2">
-              <div className="text-[11px] font-mono text-rose-300 flex items-center gap-1">
-                <TrendingDown className="w-3.5 h-3.5" />
-                <span>Negative Repellers (β &lt; 0)</span>
-              </div>
-              {regressionModel.negativeRepellers.length === 0 ? (
-                <p className="text-[11px] text-zinc-500">
-                  Add low-rated samples (y ≤ 4) to teach the model what to avoid on YouTube.
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {regressionModel.negativeRepellers.map((c) => (
-                    <span
-                      key={`${c.type}-${c.feature}`}
-                      className="px-2 py-0.5 rounded bg-rose-950/50 border border-rose-500/30 text-rose-200 text-[11px] font-mono"
-                    >
-                      {c.feature} ({c.weight})
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Right: Hyperparameter Sliders */}
-        <div className="lg:col-span-5 bg-zinc-950/90 border border-zinc-800 rounded-xl p-4 space-y-3">
-          <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
-            <span className="text-xs font-mono text-amber-400 uppercase font-semibold flex items-center gap-1.5">
-              <Sliders className="w-3.5 h-3.5" />
-              <span>Regression Hyperparameters</span>
-            </span>
-          </div>
-
-          <div className="space-y-3 text-xs">
-            <div className="space-y-1">
-              <div className="flex justify-between font-mono text-[11px]">
-                <label htmlFor="reg-lambda" className="text-zinc-300">
-                  L2 Ridge Regularization (λ)
-                </label>
-                <span className="text-amber-300">{hyperparams.regularizationLambda}</span>
-              </div>
-              <input
-                id="reg-lambda"
-                type="range"
-                min={0.05}
-                max={2.0}
-                step={0.05}
-                value={hyperparams.regularizationLambda}
-                onChange={(e) =>
-                  setHyperparams((prev) => ({
-                    ...prev,
-                    regularizationLambda: Number(e.target.value),
-                  }))
-                }
-                className="w-full accent-amber-400 cursor-pointer"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex justify-between font-mono text-[11px]">
-                <label htmlFor="reg-temp" className="text-zinc-300">
-                  YouTube Exploration Temperature (τ)
-                </label>
-                <span className="text-amber-300">{hyperparams.explorationTemperature}</span>
-              </div>
-              <input
-                id="reg-temp"
-                type="range"
-                min={0.1}
-                max={1.5}
-                step={0.1}
-                value={hyperparams.explorationTemperature}
-                onChange={(e) =>
-                  setHyperparams((prev) => ({
-                    ...prev,
-                    explorationTemperature: Number(e.target.value),
-                  }))
-                }
-                className="w-full accent-amber-400 cursor-pointer"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex justify-between font-mono text-[11px]">
-                <label htmlFor="reg-neg" className="text-zinc-300">
-                  Negative Sample Penalty (α)
-                </label>
-                <span className="text-amber-300">{hyperparams.negativePenaltyWeight}x</span>
-              </div>
-              <input
-                id="reg-neg"
-                type="range"
-                min={0.5}
-                max={3.0}
-                step={0.25}
-                value={hyperparams.negativePenaltyWeight}
-                onChange={(e) =>
-                  setHyperparams((prev) => ({
-                    ...prev,
-                    negativePenaltyWeight: Number(e.target.value),
-                  }))
-                }
-                className="w-full accent-amber-400 cursor-pointer"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* STEP 3 OF LAB: Gemini Prompt Engineering Studio */}
+      {/* CORE PANEL 2: Streamlined Gemini Discovery Execution Bar */}
       <div className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-4 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
-          <div>
-            <span className="text-xs font-mono text-amber-400 uppercase font-semibold">
-              3. Gemini Prompt Engineering Studio (Ready to Feed Samples &amp; Search YouTube)
-            </span>
-            <p className="text-xs text-zinc-400 mt-0.5">
-              Pick a regression prompt architecture below, customize constraints, and either run it live with Gemini + YouTube Grounding or copy the compiled prompt.
-            </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="text-xs font-semibold text-zinc-200">
+            2. Select Discovery Strategy &amp; Run Gemini on YouTube
           </div>
-          <button
-            type="button"
-            onClick={() => setShowTemplateEditor((prev) => !prev)}
-            className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 rounded-lg text-xs font-mono cursor-pointer whitespace-nowrap"
-          >
-            {showTemplateEditor ? 'Hide Raw Template Variables' : 'Edit Prompt Template Variables'}
-          </button>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {PROMPT_ENGINEERING_PRESETS.map((preset) => {
+              const active = selectedPresetId === preset.id;
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => handleSelectPreset(preset.id)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                    active
+                      ? 'bg-amber-400 text-zinc-950 border-amber-400 font-semibold'
+                      : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                  }`}
+                >
+                  {preset.name}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* 4 Prompt Preset Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2.5">
-          {PROMPT_ENGINEERING_PRESETS.map((preset) => {
-            const active = selectedPresetId === preset.id;
-            return (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => handleSelectPreset(preset.id)}
-                className={`text-left p-3 rounded-xl border transition-colors cursor-pointer flex flex-col justify-between gap-2 ${
-                  active
-                    ? 'bg-amber-400/15 border-amber-400 text-zinc-100'
-                    : 'bg-zinc-900/70 border-zinc-800 text-zinc-300 hover:border-zinc-700'
-                }`}
-              >
-                <div className="space-y-1">
-                  <span className="text-[10px] font-mono text-amber-300 uppercase">
-                    {preset.badge}
-                  </span>
-                  <div className="text-xs font-semibold text-zinc-100">{preset.name}</div>
-                  <p className="text-[11px] text-zinc-400 leading-relaxed">
-                    {preset.description}
-                  </p>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Optional Raw Template Variable Editor */}
-        {showTemplateEditor && (
-          <div className="space-y-2 bg-zinc-900/60 border border-zinc-800 rounded-lg p-3">
-            <label
-              htmlFor="raw-prompt-template-editor"
-              className="block text-[11px] font-mono text-amber-300"
-            >
-              Editable Prompt Template (Variables: {'{{TRAINING_SAMPLES}}'}, {'{{POSITIVE_WEIGHTS}}'}, {'{{NEGATIVE_WEIGHTS}}'}, {'{{USER_TAGS}}'}, {'{{TARGET_BPM}}'}, {'{{R_SQUARED}}'})
-            </label>
-            <textarea
-              id="raw-prompt-template-editor"
-              rows={6}
-              value={customTemplateText}
-              onChange={(e) => setCustomTemplateText(e.target.value)}
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs font-mono text-zinc-200 focus:outline-none focus:border-amber-400"
-            />
-          </div>
-        )}
-
-        {/* Additional User Constraints Input */}
-        <div className="space-y-1.5">
-          <label htmlFor="extra-prompt-constraints" className="block text-xs font-medium text-zinc-300">
-            Additional YouTube Search Constraints (Optional — injected into prompt)
-          </label>
+        <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center">
           <input
             id="extra-prompt-constraints"
             type="text"
             value={extraConstraints}
             onChange={(e) => setExtraConstraints(e.target.value)}
-            placeholder="e.g. Focus on 1990s vinyl rips, Boiler Room sets, or tracks under 6 minutes..."
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
+            placeholder="Optional message / constraint (e.g. Find 90s UK breakbeat vinyl rips or Boiler Room cuts)..."
+            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
           />
-        </div>
-
-        {/* Compiled Prompt Preview */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-mono text-zinc-400 flex items-center gap-1.5">
-              <FileCode2 className="w-3.5 h-3.5 text-amber-400" />
-              <span>Compiled Few-Shot Regression Prompt (Ready for Gemini)</span>
-            </span>
-            <button
-              type="button"
-              onClick={handleCopyEngineeredPrompt}
-              className="px-3 py-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 rounded-md text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer"
-            >
-              {copiedPrompt ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Copied Prompt!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>Copy Engineered Prompt</span>
-                </>
-              )}
-            </button>
-          </div>
-
-          <pre
-            aria-label="Compiled Regression Prompt"
-            className="bg-zinc-900/90 border border-zinc-800 rounded-lg p-3.5 text-[11px] font-mono text-amber-200/95 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap leading-relaxed"
-          >
-            {compiledPrompt}
-          </pre>
-        </div>
-
-        {/* Action Bar: Run Live with Gemini + YouTube Grounding */}
-        <div className="flex items-center justify-between flex-wrap gap-3 pt-1">
-          <div className="text-xs text-zinc-400 flex items-center gap-1.5">
-            <Globe className="w-3.5 h-3.5 text-emerald-400" />
-            <span>
-              Executes with <code className="font-mono text-emerald-300">gemini-3.8-flash</code> + live YouTube / Google Search Grounding
-            </span>
-          </div>
 
           <button
             type="button"
             onClick={handleRunEngineeredPromptWithGemini}
             disabled={isRunningGemini}
-            className="px-5 py-2.5 bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-zinc-950 font-semibold text-xs rounded-lg transition-colors inline-flex items-center gap-2 cursor-pointer"
+            className="px-5 py-2.5 bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-zinc-950 font-semibold text-xs rounded-lg transition-colors inline-flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
           >
             {isRunningGemini ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Running Regression Prompt on YouTube...</span>
+                <span>Searching YouTube with Gemini...</span>
               </>
             ) : (
               <>
@@ -966,6 +752,226 @@ export default function TasteRegressionLab({
             )}
           </button>
         </div>
+
+        {/* Toggleable Additional Tools Bar (Closed by Default!) */}
+        <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-between flex-wrap gap-2">
+          <span className="text-[11px] font-mono text-zinc-400">
+            Additional Tools (Collapsed by default to keep workspace clean):
+          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowRegressionWeightsTool((prev) => !prev)}
+              aria-expanded={showRegressionWeightsTool}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                showRegressionWeightsTool
+                  ? 'bg-amber-400/15 text-amber-300 border-amber-400/40'
+                  : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+              }`}
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>
+                Regression Weights (β) &amp; Hyperparameters (R² ={' '}
+                {regressionModel.rSquared})
+              </span>
+              {showRegressionWeightsTool ? (
+                <ChevronUp className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowPromptInspectorTool((prev) => !prev)}
+              aria-expanded={showPromptInspectorTool}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                showPromptInspectorTool
+                  ? 'bg-amber-400/15 text-amber-300 border-amber-400/40'
+                  : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+              }`}
+            >
+              <FileCode2 className="w-3.5 h-3.5" />
+              <span>Inspect / Edit Compiled Gemini Prompt</span>
+              {showPromptInspectorTool ? (
+                <ChevronUp className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* TOGGLEABLE TOOL 1: Fitted Regression Coefficients & Hyperparameters */}
+        {showRegressionWeightsTool && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 pt-2 border-t border-zinc-800/80">
+            <div className="lg:col-span-7 bg-zinc-900/70 border border-zinc-800 rounded-xl p-3.5 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-xs font-semibold text-zinc-200">
+                  Learned Feature Weights (β)
+                </span>
+                <div className="flex items-center gap-3 text-xs font-mono text-zinc-400">
+                  <span>R² = {regressionModel.rSquared}</span>
+                  <span>·</span>
+                  <span>MAE = {regressionModel.mae}</span>
+                  <span>·</span>
+                  <span>Center = {regressionModel.optimalBpm} BPM</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-lg p-3 space-y-1.5">
+                  <div className="text-[11px] font-mono text-emerald-300 flex items-center gap-1">
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    <span>Positive Drivers (β &gt; 0)</span>
+                  </div>
+                  {regressionModel.positiveDrivers.length === 0 ? (
+                    <p className="text-[11px] text-zinc-500">
+                      Add high-rated samples (y ≥ 7) with your tags to learn positive weights.
+                    </p>
+                  ) : (
+                    <div className="text-xs font-mono text-emerald-200 leading-relaxed">
+                      {regressionModel.positiveDrivers
+                        .map((c) => `${c.feature} (+${c.weight})`)
+                        .join(' · ')}
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-lg p-3 space-y-1.5">
+                  <div className="text-[11px] font-mono text-rose-300 flex items-center gap-1">
+                    <TrendingDown className="w-3.5 h-3.5" />
+                    <span>Negative Repellers (β &lt; 0)</span>
+                  </div>
+                  {regressionModel.negativeRepellers.length === 0 ? (
+                    <p className="text-[11px] text-zinc-500">
+                      Add low-rated samples (y ≤ 4) to teach the model what to avoid.
+                    </p>
+                  ) : (
+                    <div className="text-xs font-mono text-rose-200 leading-relaxed">
+                      {regressionModel.negativeRepellers
+                        .map((c) => `${c.feature} (${c.weight})`)
+                        .join(' · ')}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-5 bg-zinc-900/70 border border-zinc-800 rounded-xl p-3.5 space-y-2.5 text-xs">
+              <div className="font-semibold text-zinc-200">
+                Ridge Hyperparameters
+              </div>
+              <div className="space-y-1">
+                <div className="flex justify-between font-mono text-[11px]">
+                  <label htmlFor="reg-lambda" className="text-zinc-300">
+                    L2 Ridge Regularization (λ)
+                  </label>
+                  <span className="text-amber-300">
+                    {hyperparams.regularizationLambda}
+                  </span>
+                </div>
+                <input
+                  id="reg-lambda"
+                  type="range"
+                  min={0.05}
+                  max={2.0}
+                  step={0.05}
+                  value={hyperparams.regularizationLambda}
+                  onChange={(e) =>
+                    setHyperparams((prev) => ({
+                      ...prev,
+                      regularizationLambda: Number(e.target.value),
+                    }))
+                  }
+                  className="w-full accent-amber-400 cursor-pointer"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between font-mono text-[11px]">
+                  <label htmlFor="reg-temp" className="text-zinc-300">
+                    Exploration Temperature (τ)
+                  </label>
+                  <span className="text-amber-300">
+                    {hyperparams.explorationTemperature}
+                  </span>
+                </div>
+                <input
+                  id="reg-temp"
+                  type="range"
+                  min={0.1}
+                  max={1.5}
+                  step={0.1}
+                  value={hyperparams.explorationTemperature}
+                  onChange={(e) =>
+                    setHyperparams((prev) => ({
+                      ...prev,
+                      explorationTemperature: Number(e.target.value),
+                    }))
+                  }
+                  className="w-full accent-amber-400 cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TOGGLEABLE TOOL 2: Compiled Prompt Inspector & Template Editor */}
+        {showPromptInspectorTool && (
+          <div className="space-y-3 pt-2 border-t border-zinc-800/80">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-xs font-mono text-zinc-400">
+                Compiled Few-Shot Regression Prompt
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTemplateEditor((prev) => !prev)}
+                  className="px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 rounded text-xs font-mono cursor-pointer"
+                >
+                  {showTemplateEditor
+                    ? 'Hide Raw Template'
+                    : 'Edit Template Variables'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyEngineeredPrompt}
+                  className="px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-zinc-700 rounded text-xs font-medium inline-flex items-center gap-1 cursor-pointer"
+                >
+                  {copiedPrompt ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy Prompt</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {showTemplateEditor && (
+              <textarea
+                id="raw-prompt-template-editor"
+                rows={5}
+                value={customTemplateText}
+                onChange={(e) => setCustomTemplateText(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs font-mono text-zinc-200 focus:outline-none focus:border-amber-400"
+              />
+            )}
+
+            <pre
+              aria-label="Compiled Regression Prompt"
+              className="bg-zinc-900/90 border border-zinc-800 rounded-lg p-3 text-[11px] font-mono text-amber-200/95 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap leading-relaxed"
+            >
+              {compiledPrompt}
+            </pre>
+          </div>
+        )}
 
         {geminiError && (
           <div
@@ -990,9 +996,10 @@ export default function TasteRegressionLab({
           <div className="bg-zinc-900 border border-amber-400/30 rounded-xl p-4 space-y-4">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
               <span className="text-xs font-mono text-amber-300 font-semibold">
-                YOUTUBE REGRESSION DISCOVERIES ({geminiResponse.modelUsed})
+                YouTube Regression Discoveries ({geminiResponse.modelUsed})
               </span>
-              <span className="text-[11px] font-mono text-emerald-300">
+              <span className="text-[11px] font-mono text-emerald-300 flex items-center gap-1">
+                <Globe className="w-3 h-3" />
                 Grounded in Google / YouTube Search
               </span>
             </div>
@@ -1004,7 +1011,7 @@ export default function TasteRegressionLab({
             {geminiResponse.suggestedTracks.length > 0 && (
               <div className="space-y-2 pt-2 border-t border-zinc-800">
                 <div className="text-xs font-semibold text-amber-300">
-                  Discovered Tracks — Save to Crate or Feed Back into Regression Training:
+                  Discovered Tracks — Save to Crate or Download to ~/Downloads:
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   {geminiResponse.suggestedTracks.map((trk, idx) => (
@@ -1021,7 +1028,9 @@ export default function TasteRegressionLab({
                           {trk.year ? ` · ${trk.year}` : ''}
                         </div>
                         {trk.whyItMatches && (
-                          <p className="text-[11px] text-zinc-400 mt-1">{trk.whyItMatches}</p>
+                          <p className="text-[11px] text-zinc-400 mt-1">
+                            {trk.whyItMatches}
+                          </p>
                         )}
                       </div>
 
@@ -1048,32 +1057,25 @@ export default function TasteRegressionLab({
                           onClick={() => handleAddDiscoveredTrack(trk, true)}
                           className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded text-[11px] cursor-pointer"
                         >
-                          + Add to Training (y=9.0)
+                          + Add to Training (y=9)
                         </button>
+                        {canDirectDownload && onDirectDownloadTrack && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onDirectDownloadTrack({
+                                artist: trk.artist,
+                                title: trk.title,
+                              })
+                            }
+                            className="px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 text-amber-300 border border-amber-400/40 rounded text-[11px] inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>~/Downloads</span>
+                          </button>
+                        )}
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {geminiResponse.sources.length > 0 && (
-              <div className="pt-2 border-t border-zinc-800 space-y-1.5">
-                <div className="text-[11px] font-mono text-zinc-400">
-                  Verified Web &amp; YouTube Sources:
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {geminiResponse.sources.map((src, i) => (
-                    <a
-                      key={`${src.uri}-${i}`}
-                      href={src.uri}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-2 py-1 bg-zinc-950 hover:bg-zinc-800 text-emerald-300 border border-zinc-800 rounded text-[11px] inline-flex items-center gap-1"
-                    >
-                      <span className="truncate max-w-[220px]">{src.title}</span>
-                      <ExternalLink className="w-2.5 h-2.5 shrink-0" />
-                    </a>
                   ))}
                 </div>
               </div>

@@ -30,6 +30,12 @@ import {
   ArrowLeft,
   Video,
   Headphones,
+  FolderDown,
+  HardDriveDownload,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import {
   MusicTrack,
@@ -69,6 +75,7 @@ import { useFavorites } from '@/context/FavoritesContext';
 import TrackSearch from '@/components/TrackSearch';
 import YouTubeFeedImporter from '@/components/YouTubeFeedImporter';
 import TasteAnalytics from '@/components/TasteAnalytics';
+import PlaylistDistributionCharts from '@/components/PlaylistDistributionCharts';
 import GitHubPagesDeployer from '@/components/GitHubPagesDeployer';
 import PlaylistExporter from '@/components/PlaylistExporter';
 import GeminiCrateChatbot from '@/components/GeminiCrateChatbot';
@@ -77,6 +84,11 @@ import {
   generatePlsPlaylist,
   buildPlaylistExportPayload,
 } from '@/lib/playlist-exporter';
+import {
+  SystemEnvironmentStatus,
+  DirectDownloadTrackOutcome,
+  DirectDownloadTrackInput,
+} from '@/lib/local-system-bridge';
 
 const STORAGE_KEY = 'cratedig_yt_state_v2';
 
@@ -266,31 +278,123 @@ export default function CrateDigWorkbench() {
   const [bulkEditStatusMessage, setBulkEditStatusMessage] = useState<string | null>(null);
   const [showDiscoverBulkBar, setShowDiscoverBulkBar] = useState<boolean>(false);
 
-  // Load persisted state from sessionStorage / localStorage
-  useEffect(() => {
+  // Collapsible Additional Tools (Closed by default so UI starts clean and uncluttered)
+  const [showStep1GuiBuilder, setShowStep1GuiBuilder] = useState<boolean>(false);
+  const [showSystemDownloadsDrawer, setShowSystemDownloadsDrawer] = useState<boolean>(false);
+
+  // Local System Environment (yt-dlp + ffmpeg + ~/Downloads) Detection & Direct Download State
+  const [systemStatus, setSystemStatus] = useState<SystemEnvironmentStatus | null>(null);
+  const [isCheckingSystem, setIsCheckingSystem] = useState<boolean>(false);
+  const [isDownloadingToSystem, setIsDownloadingToSystem] = useState<boolean>(false);
+  const [systemDownloadMessage, setSystemDownloadMessage] = useState<string | null>(null);
+  const [lastDownloadOutcomes, setLastDownloadOutcomes] = useState<DirectDownloadTrackOutcome[]>([]);
+
+  const fetchSystemEnvironment = async () => {
+    setIsCheckingSystem(true);
     try {
-      const saved =
-        sessionStorage.getItem(STORAGE_KEY) || localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.playlists && parsed.playlists.length > 0) {
-          setPlaylists(parsed.playlists);
-          setActivePlaylistId(parsed.playlists[0].id);
-        }
-        if (parsed.feedText) {
-          setFeedText(parsed.feedText);
-          setFeedTracks(parseYouTubeFeedInput(parsed.feedText));
-        }
-        if (parsed.ytDlpOptions) {
-          setYtDlpOptions((prev) => ({ ...prev, ...parsed.ytDlpOptions }));
-        }
-        if (parsed.trackOverrides && typeof parsed.trackOverrides === 'object') {
-          setTrackOverrides(parsed.trackOverrides);
-        }
+      const res = await fetch('/api/system/yt-dlp');
+      if (res.ok) {
+        const data = (await res.json()) as SystemEnvironmentStatus;
+        setSystemStatus(data);
       }
     } catch {
-      // ignore storage errors
+      // ignore fetch errors
+    } finally {
+      setIsCheckingSystem(false);
     }
+  };
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/system/yt-dlp')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data) {
+          setSystemStatus(data as SystemEnvironmentStatus);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleDirectDownloadToDownloads = async (
+    tracksToDownload: DirectDownloadTrackInput[]
+  ) => {
+    if (!tracksToDownload || tracksToDownload.length === 0) return;
+    setIsDownloadingToSystem(true);
+    setSystemDownloadMessage(
+      `Downloading ${tracksToDownload.length} track(s) directly into ${
+        systemStatus?.downloadsDir || '~/Downloads'
+      }...`
+    );
+    try {
+      const res = await fetch('/api/system/yt-dlp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'download',
+          tracks: tracksToDownload,
+          options: ytDlpOptions,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSystemDownloadMessage(
+          data.error || 'Direct download to ~/Downloads failed.'
+        );
+        return;
+      }
+      if (data.status) {
+        setSystemStatus(data.status as SystemEnvironmentStatus);
+      }
+      const outcomes: DirectDownloadTrackOutcome[] = Array.isArray(data.outcomes)
+        ? data.outcomes
+        : [];
+      setLastDownloadOutcomes(outcomes);
+      const firstFile = outcomes[0]?.fileName ? ` (${outcomes[0].fileName})` : '';
+      setSystemDownloadMessage(
+        `${data.summary || 'Saved to ~/Downloads'}${firstFile}`
+      );
+      setShowSystemDownloadsDrawer(true);
+    } catch (err) {
+      setSystemDownloadMessage(
+        err instanceof Error ? err.message : 'Network error during ~/Downloads save.'
+      );
+    } finally {
+      setIsDownloadingToSystem(false);
+    }
+  };
+
+  // Load persisted state from sessionStorage / localStorage
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const saved =
+          sessionStorage.getItem(STORAGE_KEY) || localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.playlists && parsed.playlists.length > 0) {
+            setPlaylists(parsed.playlists);
+            setActivePlaylistId(parsed.playlists[0].id);
+          }
+          if (parsed.feedText) {
+            setFeedText(parsed.feedText);
+            setFeedTracks(parseYouTubeFeedInput(parsed.feedText));
+          }
+          if (parsed.ytDlpOptions) {
+            setYtDlpOptions((prev) => ({ ...prev, ...parsed.ytDlpOptions }));
+          }
+          if (parsed.trackOverrides && typeof parsed.trackOverrides === 'object') {
+            setTrackOverrides(parsed.trackOverrides);
+          }
+        }
+      } catch {
+        // ignore storage errors
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   // Save state on changes
@@ -658,17 +762,16 @@ export default function CrateDigWorkbench() {
     );
   };
 
-  const baseCategories = [
-    'Electronic',
-    'Indie & Funk',
-    'Psychedelic Rock',
-    'Synthwave & Chill',
-    'Downtempo & Jazz',
-    'Leftfield & IDM',
-    'UK Bass & Breaks',
-  ];
-
   const categoriesList = useMemo(() => {
+    const baseCategories = [
+      'Electronic',
+      'Indie & Funk',
+      'Psychedelic Rock',
+      'Synthwave & Chill',
+      'Downtempo & Jazz',
+      'Leftfield & IDM',
+      'UK Bass & Breaks',
+    ];
     const set = new Set<string>(['All', ...baseCategories]);
     for (const t of allTracksPool) {
       if (t.category) set.add(t.category);
@@ -791,11 +894,13 @@ export default function CrateDigWorkbench() {
               className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-amber-400"
             >
               <option value="">Keep existing category</option>
-              {baseCategories.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
+              {categoriesList
+                .filter((cat) => cat !== 'All')
+                .map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
             </select>
             <label className="flex items-center gap-1.5 text-[11px] text-zinc-400 cursor-pointer select-none pt-0.5">
               <input
@@ -1454,7 +1559,38 @@ export default function CrateDigWorkbench() {
               ))}
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              {systemStatus?.canDirectDownload && (
+                <button
+                  type="button"
+                  disabled={isDownloadingToSystem}
+                  onClick={() => {
+                    const customUrl = (ytDlpOptions.customTargetUrl || '').trim();
+                    if (guiCommandScope === 'custom' && customUrl) {
+                      handleDirectDownloadToDownloads([
+                        {
+                          id: 'custom-dl',
+                          title: customUrl,
+                          artist: 'YouTube Custom',
+                          youtubeUrl: customUrl,
+                          ytDlpQuery: customUrl,
+                        },
+                      ]);
+                    } else {
+                      handleDirectDownloadToDownloads(previewTargetTracks);
+                    }
+                  }}
+                  className="px-3.5 py-1.5 bg-emerald-400 hover:bg-emerald-300 disabled:opacity-50 text-zinc-950 font-semibold text-xs rounded-lg transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <HardDriveDownload className="w-3.5 h-3.5" />
+                  <span>
+                    {isDownloadingToSystem
+                      ? 'Saving to ~/Downloads...'
+                      : 'Download Directly to ~/Downloads'}
+                  </span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => copyToClipboard(constructedCliCommand, 'gui-ytdlp-cmd')}
@@ -1699,6 +1835,50 @@ export default function CrateDigWorkbench() {
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  {/* Compact System Detection Status & Toggleable ~/Downloads Drawer Button */}
+                  <button
+                    type="button"
+                    aria-expanded={showSystemDownloadsDrawer}
+                    onClick={() => setShowSystemDownloadsDrawer((prev) => !prev)}
+                    className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                      systemStatus?.canDirectDownload
+                        ? 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                        : 'bg-zinc-950 hover:bg-zinc-800 text-zinc-300 border-zinc-800'
+                    }`}
+                  >
+                    <FolderDown className="w-3.5 h-3.5" />
+                    <span>
+                      {systemStatus?.canDirectDownload
+                        ? `System Ready (yt-dlp + ffmpeg) · ~/Downloads (${
+                            systemStatus.recentFiles.length
+                          })`
+                        : isCheckingSystem
+                        ? 'Checking System Binaries...'
+                        : 'System ~/Downloads Bridge'}
+                    </span>
+                    {showSystemDownloadsDrawer ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+
+                  {systemStatus?.canDirectDownload && activePlaylistTracks.length > 0 && (
+                    <button
+                      type="button"
+                      disabled={isDownloadingToSystem}
+                      onClick={() => handleDirectDownloadToDownloads(activePlaylistTracks)}
+                      className="px-3.5 py-2 bg-emerald-400 hover:bg-emerald-300 disabled:opacity-50 text-zinc-950 font-semibold rounded-lg text-xs transition-colors inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                    >
+                      <HardDriveDownload className="w-3.5 h-3.5" />
+                      <span>
+                        {isDownloadingToSystem
+                          ? 'Downloading to ~/Downloads...'
+                          : `Download Crate to ~/Downloads (${activePlaylistTracks.length})`}
+                      </span>
+                    </button>
+                  )}
+
                   {prevStepMeta && (
                     <button
                       type="button"
@@ -1722,13 +1902,179 @@ export default function CrateDigWorkbench() {
                   )}
                 </div>
               </div>
+
+              {/* Status Banner when a direct download completes or is running */}
+              {systemDownloadMessage && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-emerald-200">
+                  <div className="flex items-center gap-2 font-mono">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>{systemDownloadMessage}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowSystemDownloadsDrawer((prev) => !prev)}
+                      className="px-2.5 py-1 bg-zinc-950 hover:bg-zinc-900 text-emerald-300 border border-emerald-500/30 rounded text-[11px] font-medium cursor-pointer"
+                    >
+                      {showSystemDownloadsDrawer ? 'Hide ~/Downloads' : 'Inspect ~/Downloads'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSystemDownloadMessage(null)}
+                      className="text-zinc-400 hover:text-zinc-200 text-[11px] cursor-pointer"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Toggleable Local System Bridge & ~/Downloads Folder Drawer (Collapsed by default) */}
+              {showSystemDownloadsDrawer && (
+                <div
+                  aria-label="System yt-dlp and ffmpeg Bridge"
+                  className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-4 space-y-3"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+                    <div>
+                      <div className="text-xs font-semibold text-zinc-100 flex items-center gap-2">
+                        <HardDriveDownload className="w-4 h-4 text-emerald-400" />
+                        <span>
+                          Local System Environment Detection (`yt-dlp` &amp; `ffmpeg`) + Direct `~/Downloads` Bridge
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 mt-0.5">
+                        Detects installed <code className="font-mono text-zinc-300">yt-dlp</code> and{' '}
+                        <code className="font-mono text-zinc-300">ffmpeg</code> binaries on the running system and writes audio/video directly into{' '}
+                        <code className="font-mono text-emerald-300">
+                          {systemStatus?.downloadsDir || '~/Downloads'}
+                        </code>
+                        .
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={fetchSystemEnvironment}
+                        disabled={isCheckingSystem}
+                        className="px-2.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 rounded-lg text-xs inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <RefreshCw
+                          className={`w-3 h-3 ${isCheckingSystem ? 'animate-spin' : ''}`}
+                        />
+                        <span>Re-Detect System</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                    <div className="p-3 bg-zinc-900/70 border border-zinc-800 rounded-lg space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-zinc-400">yt-dlp binary</span>
+                        {systemStatus?.ytDlp.installed ? (
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px]">
+                            INSTALLED
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 font-mono text-[10px]">
+                            MISSING
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-mono text-zinc-200 truncate">
+                        {systemStatus?.ytDlp.version || 'Not detected'}
+                      </div>
+                      <div className="font-mono text-[10px] text-zinc-500 truncate">
+                        {systemStatus?.ytDlp.binaryPath || 'No binary path'}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-zinc-900/70 border border-zinc-800 rounded-lg space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-zinc-400">ffmpeg binary</span>
+                        {systemStatus?.ffmpeg.installed ? (
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px]">
+                            INSTALLED
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 font-mono text-[10px]">
+                            MISSING
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-mono text-zinc-200 truncate">
+                        {systemStatus?.ffmpeg.version || 'Not detected'}
+                      </div>
+                      <div className="font-mono text-[10px] text-zinc-500 truncate">
+                        {systemStatus?.ffmpeg.binaryPath || 'No binary path'}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-zinc-900/70 border border-zinc-800 rounded-lg space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-zinc-400">Target Folder</span>
+                        <span className="px-2 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono text-[10px]">
+                          ~/Downloads
+                        </span>
+                      </div>
+                      <div className="font-mono text-emerald-300 truncate">
+                        {systemStatus?.downloadsDir || '~/Downloads'}
+                      </div>
+                      <div className="font-mono text-[10px] text-zinc-500">
+                        {systemStatus?.recentFiles.length || 0} media file(s) in folder
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* List of files inside ~/Downloads */}
+                  {systemStatus && systemStatus.recentFiles.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      <div className="text-[11px] font-mono text-zinc-400">
+                        Files Currently Inside {systemStatus.downloadsDir}:
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {systemStatus.recentFiles.map((file) => (
+                          <div
+                            key={file.name}
+                            className="p-2.5 bg-zinc-900/80 border border-zinc-800 rounded-lg flex items-center justify-between gap-2 text-xs"
+                          >
+                            <div className="min-w-0">
+                              <div className="font-mono text-zinc-100 truncate">
+                                {file.name}
+                              </div>
+                              <div className="text-[10px] font-mono text-zinc-500 truncate">
+                                {file.path} · {(file.sizeBytes / 1024).toFixed(1)} KB
+                              </div>
+                            </div>
+                            <a
+                              href={`/api/system/yt-dlp?file=${encodeURIComponent(file.name)}`}
+                              download={file.name}
+                              className="px-2.5 py-1 bg-zinc-950 hover:bg-zinc-800 text-amber-300 border border-zinc-800 rounded text-[11px] font-medium shrink-0 inline-flex items-center gap-1"
+                            >
+                              <Download className="w-3 h-3" />
+                              <span>Fetch File</span>
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {lastDownloadOutcomes.length > 0 && (
+                    <div className="text-[11px] font-mono text-zinc-400 pt-1">
+                      Last action wrote {lastDownloadOutcomes.filter((o) => o.status !== 'error').length}/
+                      {lastDownloadOutcomes.length} file(s) into {systemStatus?.downloadsDir || '~/Downloads'}.
+                    </div>
+                  )}
+                </div>
+              )}
             </section>
 
             {/* =================================================================
                 STEP 01: CONNECT COOKIES & GUI YT-DLP BUILDER (activeStep === 'cookies')
                ================================================================= */}
             {activeStep === 'cookies' && (
-              <div className="space-y-6">
+              <div className="space-y-5">
                 <YouTubeFeedImporter
                   cookieSource={ytDlpOptions.cookieSource || 'browser'}
                   cookieBrowser={ytDlpOptions.cookieBrowser || 'firefox'}
@@ -1744,8 +2090,43 @@ export default function CrateDigWorkbench() {
                   onProceedToNextStep={() => setActiveStep('feed')}
                 />
 
-                {/* Visual GUI yt-dlp Command & Quality Builder */}
-                {renderYtDlpGuiBuilderSection()}
+                {/* Additional Tool Toggle Bar (Collapsed by Default so Step 01 is clean & not crowded) */}
+                <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-200 flex items-center gap-2">
+                      <Terminal className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Additional Tool: Visual GUI yt-dlp Command &amp; Quality Builder</span>
+                    </div>
+                    <p className="text-[11px] text-zinc-400 mt-0.5">
+                      Construct custom Audio-Only (-x) or Video (-f) yt-dlp flags, quality bitrates, and trigger direct downloads to ~/Downloads.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-expanded={showStep1GuiBuilder}
+                    onClick={() => setShowStep1GuiBuilder((prev) => !prev)}
+                    className={`px-3.5 py-2 rounded-lg text-xs font-semibold border transition-colors inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0 ${
+                      showStep1GuiBuilder
+                        ? 'bg-amber-400 text-zinc-950 border-amber-400'
+                        : 'bg-zinc-950 hover:bg-zinc-800 text-amber-300 border-zinc-800'
+                    }`}
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    <span>
+                      {showStep1GuiBuilder
+                        ? 'Hide Visual GUI yt-dlp Builder'
+                        : 'Open Visual GUI yt-dlp Command Builder'}
+                    </span>
+                    {showStep1GuiBuilder ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Visual GUI yt-dlp Command & Quality Builder (Only shown when toggled open) */}
+                {showStep1GuiBuilder && renderYtDlpGuiBuilderSection()}
               </div>
             )}
 
@@ -2073,6 +2454,10 @@ export default function CrateDigWorkbench() {
                   <TasteRegressionLab
                     userTracks={[...feedTracks, ...customCatalogTracks]}
                     activePlaylistTracks={activePlaylistTracks}
+                    canDirectDownload={Boolean(systemStatus?.canDirectDownload)}
+                    onDirectDownloadTrack={(track) =>
+                      handleDirectDownloadToDownloads([track])
+                    }
                     onAddDiscoveredTrackToCatalog={(track) => {
                       setCustomCatalogTracks((prev) => {
                         const exists = prev.some(
@@ -2216,6 +2601,12 @@ export default function CrateDigWorkbench() {
                     </select>
                   </div>
                 </div>
+
+                {/* Recharts Section: Song Duration & Genre Distribution in the Currently Generated Playlist */}
+                <PlaylistDistributionCharts
+                  playlistName={activePlaylist.name}
+                  playlistTracks={activePlaylistTracks}
+                />
 
                 {/* SUB-VIEW 5A: TASTE-RANKED CATALOG */}
                 {exportSubTab === 'ranked' && (
@@ -2496,6 +2887,19 @@ export default function CrateDigWorkbench() {
                                       )}
                                     </button>
 
+                                    {systemStatus?.canDirectDownload && (
+                                      <button
+                                        type="button"
+                                        disabled={isDownloadingToSystem}
+                                        onClick={() => handleDirectDownloadToDownloads([track])}
+                                        title="Download directly into ~/Downloads"
+                                        className="px-2.5 py-1.5 bg-zinc-950 hover:bg-zinc-800 disabled:opacity-50 text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-medium transition-colors inline-flex items-center gap-1 cursor-pointer"
+                                      >
+                                        <HardDriveDownload className="w-3 h-3" />
+                                        <span>~/Downloads</span>
+                                      </button>
+                                    )}
+
                                     <button
                                       type="button"
                                       onClick={() => toggleTrackInPlaylist(track.id)}
@@ -2541,6 +2945,21 @@ export default function CrateDigWorkbench() {
                         </p>
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
+                        {systemStatus?.canDirectDownload && (
+                          <button
+                            type="button"
+                            disabled={activePlaylistTracks.length === 0 || isDownloadingToSystem}
+                            onClick={() => handleDirectDownloadToDownloads(activePlaylistTracks)}
+                            className="px-3.5 py-2 bg-emerald-400 hover:bg-emerald-300 disabled:opacity-50 text-zinc-950 font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                          >
+                            <HardDriveDownload className="w-3.5 h-3.5" />
+                            <span>
+                              {isDownloadingToSystem
+                                ? 'Saving to ~/Downloads...'
+                                : 'Download Crate to ~/Downloads'}
+                            </span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => {
