@@ -1,5 +1,14 @@
 import type {NextConfig} from 'next';
 
+const isGitHubPages = process.env.GITHUB_PAGES === 'true';
+const rawBasePath = (process.env.NEXT_PUBLIC_BASE_PATH || '').trim();
+const normalizedBasePath =
+  rawBasePath && rawBasePath !== '/'
+    ? rawBasePath.startsWith('/')
+      ? rawBasePath.replace(/\/+$/, '')
+      : `/${rawBasePath.replace(/\/+$/, '')}`
+    : '';
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   eslint: {
@@ -10,6 +19,7 @@ const nextConfig: NextConfig = {
   },
   // Allow access to remote image placeholder.
   images: {
+    ...(isGitHubPages ? {unoptimized: true} : {}),
     remotePatterns: [
       {
         protocol: 'https',
@@ -19,7 +29,13 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  output: 'standalone',
+  output: isGitHubPages ? 'export' : 'standalone',
+  ...(isGitHubPages && normalizedBasePath
+    ? {
+        basePath: normalizedBasePath,
+        assetPrefix: `${normalizedBasePath}/`,
+      }
+    : {}),
   transpilePackages: ['motion'],
   webpack: (config, {dev}) => {
     // HMR is disabled in AI Studio via DISABLE_HMR env var.
@@ -34,3 +50,4 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+

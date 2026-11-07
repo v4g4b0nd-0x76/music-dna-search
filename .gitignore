@@ -1,7 +1,9 @@
 node_modules/
-.next/
-coverage/
+/.next/
+/out/
+/dist/
+/.playwright-cli/
+/.api-pages-build-backup/
+/.aistudio/
+.env*.local
 .DS_Store
-*.log
-.env*
-!.env.example
